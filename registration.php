@@ -1,6 +1,5 @@
 <?php
 
-
 // Create DB table on activation
 register_activation_hook(__FILE__, 'student_registration_create_table');
 function student_registration_create_table() {
@@ -36,15 +35,70 @@ function student_registration_drop_table() {
 add_action('admin_menu', 'student_registration_admin_menu');
 function student_registration_admin_menu() {
     add_menu_page(
-        'Student Registration',
-        'Student Registration',
-        'manage_options',
+        'Student Registration', // Page title (shown in <title> and heading)
+        'Makerspace',           // Menu title (shown in sidebar menu)
+        'edit_pages',
         'student-registration',
         'render_student_registration_admin_page',
         'dashicons-welcome-learn-more',
         25
     );
+    add_submenu_page(
+        'student-registration', // Page title (shown in <title> and heading)
+        'Student Registration',           // Menu title (shown in sidebar menu)
+        'Student Registration',  
+        'edit_pages',
+        'student-registration',
+        'render_student_registration_admin_page',
+);
+    add_submenu_page(
+        'student-registration',         // parent slug
+        'Students List',                // page title
+        'Students List',                // menu title
+        'manage_options',
+        'students-list',
+        'render_students_list_page'     // function to display content
+    );
+    //  2. New Course second
+    add_submenu_page(
+        'student-registration',
+        'New Course',
+        'New Course',
+        'manage_options',
+        'course-new',
+        'render_course_new_page'
+    );
+
+    //  3. Course List third
+    add_submenu_page(
+        'student-registration',
+        'Course List',
+        'Course List',
+        'manage_options',
+        'course-selection',
+        'render_course_selection_list_page'
+    );
+    // 4. New Instructor
+    add_submenu_page(
+        'student-registration',
+        'New Instructor',
+        'New Instructor',
+        'manage_options',
+        'instructor-new',
+        'render_instructor_new_page'
+    );
+
+    // 5. List of Instructors
+    add_submenu_page(
+        'student-registration',
+        'List of Instructors',
+        'List of Instructors',
+        'manage_options',
+        'instructors-list',
+        'render_instructors_list_page'
+    );
 }
+
 
 // Render admin page with form and process submission inline
 function render_student_registration_admin_page() {
@@ -243,15 +297,60 @@ function delete_course_enrollments_table() {
     global $wpdb;
     $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}course_enrollments");
 }
+
+
+function render_students_list_page() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'student_registrations';
+    $students = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
+
+    echo '<div class="wrap">';
+    echo '<h1>Students List</h1>';
+
+    if (!empty($students)) {
+        echo '<table class="wp-list-table widefat fixed striped">';
+        echo '<thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Student ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Registered Date</th>
+                </tr>
+              </thead><tbody>';
+
+        $count = 1;
+        foreach ($students as $student) {
+            echo '<tr>';
+            echo '<td>' . esc_html($count++) . '</td>';
+            echo '<td>' . esc_html($student->student_id) . '</td>';
+            echo '<td>' . esc_html($student->student_name) . '</td>';
+            echo '<td>' . esc_html($student->email) . '</td>';
+            echo '<td>' . esc_html($student->phone) . '</td>';
+            echo '<td>' . esc_html(date('Y-m-d', strtotime($student->created_at))) . '</td>';
+            echo '</tr>';
+        }
+
+        echo '</tbody></table>';
+    
+    } else {
+        echo '<p>No student records found.</p>';
+    }
+ ?>
+ <style>
+    .wp-list-table th, .wp-list-table td {
+        text-align: center;
+        vertical-align: middle;
+    }
+</style>
+
+     <?php
+    echo '</div>';
+}
 function course_selection_admin_menu() { 
-    add_submenu_page(
-        'student-registration',
-        'Course Selection',
-        'Course Selection',
-        'manage_options',
-        'course-selection',
-        'render_course_selection_page'
-    );
+
     add_submenu_page(
         'student-registration',
         'Course Batches',
@@ -263,46 +362,42 @@ function course_selection_admin_menu() {
 
 }
 add_action('admin_menu', 'course_selection_admin_menu');
-
-function render_course_selection_page() { 
-    global $wpdb;
-
-    $tab = isset($_GET['tab']) ? $_GET['tab'] : 'list';
-
-    echo '<div class="wrap"><h1>Course Selection</h1>';
-
-    echo '<h2 class="nav-tab-wrapper">';
-    echo '<a href="?page=course-selection&tab=list" class="nav-tab ' . ($tab == 'list' ? 'nav-tab-active' : '') . '">Course List</a>';
-    echo '<a href="?page=course-selection&tab=new" class="nav-tab ' . ($tab == 'new' ? 'nav-tab-active' : '') . '">New Course</a>';
-    echo '</h2>';
-
-    // CSS scoped per tab
+function render_course_selection_styles() {
     ?>
     <style>
-        /* Tabs styling */
         .nav-tab-wrapper .nav-tab {
-            margin-right: 0 !important;
-            margin-left: 0 !important;
-            padding-left: 12px;
-            padding-right: 12px;
+            margin: 0 !important;
+            padding: 0 12px;
         }
-
-        /* COURSE LIST TAB */
-        .course-list-tab {
-            margin-top: 0 !important;
-            padding-top: 0 !important;
+        .course-list-tab, .new-course-tab {
+            margin-top: 0;
+            padding-top: 0;
         }
-        .course-list-tab table.wp-list-table {
-            margin-top: 0 !important;
-        }
-        /* Example styling for course list message */
-        .course-list-tab p {
-            color: #333;
+        .course-list-tab table.wp-list-table,
+        .new-course-tab table.wp-list-table {
+            background: #fff;
+            box-shadow: 0 2px 6px rgb(0 0 0 / 0.1);
+            border-radius: 6px;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
             font-size: 14px;
-            margin-top: 10px;
+            width: 100%;
+            border-collapse: collapse;
         }
-
-        /* NEW COURSE TAB */
+        .course-list-tab table.wp-list-table th,
+        .course-list-tab table.wp-list-table td {
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        .course-list-tab table.wp-list-table thead tr {
+            background-color: #c3c7c9;
+            color: #fff;
+            font-weight: bold;
+        }
+        .course-list-tab table.wp-list-table tbody tr:hover {
+            background-color: #e8f4fc;
+        }
         .new-course-tab .form-container {
             background: #fff;
             border: 1px solid #ccd0d4;
@@ -314,8 +409,8 @@ function render_course_selection_page() {
         }
         .new-course-tab .form-table th {
             text-align: left;
-            padding: 10px 0;
             font-size: 15px;
+            padding: 10px 0;
         }
         .new-course-tab .form-table input[type="text"] {
             width: 100%;
@@ -332,10 +427,10 @@ function render_course_selection_page() {
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            height: 25px;
             display: flex;
             align-items: center;
             justify-content: center;
+            height: 25px;
         }
         .new-course-tab .add-button:hover {
             background: #005a9e;
@@ -343,15 +438,12 @@ function render_course_selection_page() {
         .new-course-tab .button-primary {
             background: #2271b1;
             border-color: #2271b1;
-            box-shadow: none;
-            padding: 8px 16px;
             border-radius: 4px;
+            padding: 8px 16px;
             font-size: 14px;
-            height: auto;
         }
         .new-course-tab .button-primary:hover {
             background: #1d5a91;
-            border-color: #1d5a91;
         }
         .new-course-tab .module-list {
             display: flex;
@@ -371,7 +463,6 @@ function render_course_selection_page() {
             font-weight: 500;
             color: #0073aa;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-            transition: background 0.3s ease;
         }
         .new-course-tab .module-tag:hover {
             background-color: #d0eaff;
@@ -396,63 +487,26 @@ function render_course_selection_page() {
             border: 1px solid #ccd0d4;
             border-radius: 4px;
         }
-       .course-list-tab table.wp-list-table {
-           width: 100%;
-           border-collapse: collapse; /* Collapse borders for clean lines */
-           background: #fff;
-           box-shadow: 0 2px 6px rgb(0 0 0 / 0.1);
-           border-radius: 6px;
-           overflow: hidden;
-           font-family: Arial, sans-serif;
-           font-size: 14px;
-       }
-       
-       .course-list-tab table.wp-list-table thead tr {
-           background-color: #c3c7c9;
-           color: #fff;
-           font-weight: bold;
-       }
-       
-       .course-list-tab table.wp-list-table thead th {
-           padding: 10px 5px;
-           border: 1px solid #ddd; /* Border around header cells */
-           text-align: center;
-           font-weight: bold;
-           
-       }
-       
-       .course-list-tab table.wp-list-table tbody td {
-           padding: 12px 15px;
-           border: 1px solid #ddd; /* Border around body cells */
-           vertical-align: middle;
-           color: #333;
-       }
-       
-       .course-list-tab table.wp-list-table tbody tr:hover {
-           background-color: #e8f4fc; /* Light blue hover highlight */
-           cursor: default;
-       }
-
-.course-list-tab table.wp-list-table td {
-    text-align: center;
-    vertical-align: middle;
-}
-
-.course-list-tab table.wp-list-table thead th:nth-child(1) { width: 20px; }
-.course-list-tab table.wp-list-table thead th:nth-child(2) { width: 40px; }
-.course-list-tab table.wp-list-table thead th:nth-child(3) { width: 40px; }
-.course-list-tab table.wp-list-table thead th:nth-child(4) { width: 50px; }
-/* ...and so on */
-
     </style>
     <?php
+}
 
-    // Handle update form submission for editing a course
+function render_course_selection_list_page() {
+    global $wpdb;
+
+    echo '<div class="wrap"><h1>Course Selection</h1>';
+    render_course_selection_styles();
+
+    echo '<div class="course-list-tab">';
+
+    $table_name = $wpdb->prefix . 'course_enrollments';
+    $courses = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
+
+    // Handle update form
     if (isset($_POST['update_course'])) {
         $course_db_id = intval($_POST['course_db_id']);
         $course_id = sanitize_text_field($_POST['course_id']);
         $course_name = sanitize_text_field($_POST['course_name']);
-
         $modules_input = sanitize_text_field($_POST['modules'] ?? '');
         $modules = array_map('trim', explode(',', $modules_input));
         $modules_json = json_encode(array_values(array_filter($modules)));
@@ -470,147 +524,127 @@ function render_course_selection_page() {
         echo '<div class="notice notice-success is-dismissible"><p>✅ Course updated successfully.</p></div>';
     }
 
-    if ($tab == 'list') {
-        echo '<div class="course-list-tab">';
+    if ($courses) {
+        $editing_id = isset($_GET['edit']) ? intval($_GET['edit']) : 0;
 
-        $table_name = $wpdb->prefix . 'course_enrollments';
-        $courses = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
+        echo '<table class="wp-list-table widefat fixed striped">';
+        echo '<thead><tr><th>Course ID</th><th>Course Name</th><th>Modules</th><th>Actions</th></tr></thead><tbody>';
 
-        if ($courses) {
-            $editing_id = isset($_GET['edit']) ? intval($_GET['edit']) : 0;
+        foreach ($courses as $course) {
+            $is_editing = ($editing_id === intval($course->id));
+            $modules = json_decode($course->modules, true);
+            $modules = is_array($modules) ? $modules : [];
 
-            echo '<table class="wp-list-table widefat fixed striped">';
-            echo '<thead><tr>';
-            echo '<th>Course ID</th>';
-            echo '<th>Course Name</th>';
-            echo '<th>Modules</th>';
-            echo '<th>Actions</th>';
-            echo '</tr></thead>';
-            echo '<tbody>';
-
-            foreach ($courses as $course) {
-                $is_editing = ($editing_id === intval($course->id));
-                $modules = json_decode($course->modules, true);
-                $modules = is_array($modules) ? $modules : [];
-
-                if ($is_editing) {
-                    // Editable row with form
-                    echo '<tr>';
-                    echo '<form method="post" action="">';
-                    echo '<input type="hidden" name="course_db_id" value="' . esc_attr($course->id) . '">';
-                    echo '<td><input type="text" name="course_id" value="' . esc_attr($course->course_id) . '" required></td>';
-                    echo '<td><input type="text" name="course_name" value="' . esc_attr($course->course_name) . '" required></td>';
-                    echo '<td>';
-                    echo '<input type="text" name="modules" value="' . esc_attr(implode(', ', $modules)) . '" placeholder="Comma separated modules" style="width:100%;">';
-                    echo '</td>';
-                    echo '<td>';
-                    echo '<input type="submit" name="update_course" class="button button-primary" value="Save">';
-                    echo ' <a href="?page=course-selection&tab=list" class="button">Cancel</a>';
-                    echo '</td>';
-                    echo '</form>';
-                    echo '</tr>';
-                } else {
-                    // Normal display row
-                    echo '<tr>';
-                    echo '<td>' . esc_html($course->course_id) . '</td>';
-                    echo '<td>' . esc_html($course->course_name) . '</td>';
-                    echo '<td>' . esc_html(implode(', ', $modules)) . '</td>';
-                    echo '<td style="text-align:center;">';  // to center align all buttons in the cell
-                    echo '<a href="?page=course-selection&tab=list&edit=' . intval($course->id) . '" class="button button-primary" style="margin-right:5px;">Edit</a>';
-                    echo '<a href="admin.php?page=course-batches&course_id=' . intval($course->id) . '" class="button button-primary" style="margin-right:5px;">Batch</a>';
-
-                    
-                    echo '</td>';
-
-
-                    echo '</tr>';
-                }
+            echo '<tr>';
+            if ($is_editing) {
+                echo '<form method="post">';
+                echo '<input type="hidden" name="course_db_id" value="' . esc_attr($course->id) . '">';
+                echo '<td><input type="text" name="course_id" value="' . esc_attr($course->course_id) . '" required></td>';
+                echo '<td><input type="text" name="course_name" value="' . esc_attr($course->course_name) . '" required></td>';
+                echo '<td><input type="text" name="modules" value="' . esc_attr(implode(', ', $modules)) . '" style="width:100%;"></td>';
+                echo '<td><input type="submit" name="update_course" class="button button-primary" value="Save">';
+                echo ' <a href="?page=course-selection-list" class="button">Cancel</a></td>';
+                echo '</form>';
+            } else {
+                echo '<td>' . esc_html($course->course_id) . '</td>';
+                echo '<td>' . esc_html($course->course_name) . '</td>';
+                echo '<td>' . esc_html(implode(', ', $modules)) . '</td>';
+                echo '<td>';
+                echo '<a href="?page=course-selection-list&edit=' . intval($course->id) . '" class="button button-primary" style="margin-right:5px;">Edit</a>';
+                echo '<a href="admin.php?page=course-batches&course_id=' . intval($course->id) . '" class="button button-primary">Batch</a>';
+                echo '</td>';
             }
-
-            echo '</tbody></table>';
-        } else {
-            echo '<p>No courses found.</p>';
+            echo '</tr>';
         }
 
-        echo '</div>'; // end course-list-tab
-
-    } elseif ($tab == 'new') {
-        echo '<div class="new-course-tab">';
-        // Handle form submission
-        if (isset($_POST['save_course'])) {
-            $course_id = sanitize_text_field($_POST['course_id']);
-            $course_name = sanitize_text_field($_POST['course_name']);
-            $modules = array_map('sanitize_text_field', $_POST['modules'] ?? []);
-            $modules_json = json_encode(array_values(array_filter($modules)));
-
-            $wpdb->insert(
-                $wpdb->prefix . 'course_enrollments',
-                [
-                    'course_id'   => $course_id,
-                    'course_name' => $course_name,
-                    'modules'     => $modules_json
-                ]
-            );
-
-            echo '<div class="notice notice-success is-dismissible"><p>✅ Course <strong>' . esc_html($course_name) . '</strong> saved with ID <strong>' . esc_html($course_id) . '</strong>.</p></div>';
-        }
-        ?>
-
-        <div class="form-container">
-            <form method="post">
-                <table class="form-table">
-                    <tr>
-                        <th><label for="course_id">Course ID</label></th>
-                        <td><input type="text" name="course_id" id="course_id" required></td>
-                    </tr>
-                    <tr>
-                        <th><label for="course_name">Course Name</label></th>
-                        <td><input type="text" name="course_name" id="course_name" required></td>
-                    </tr>
-                    <tr>
-                        <th>Modules</th>
-                        <td>
-                            <div id="module-entry">
-                                <div class="module-input-row">
-                                    <input type="text" id="new-module-name" placeholder="Enter Module Name" />
-                                    <button type="button" class="add-button" onclick="addModule()">+</button>
-                                </div>
-                                <div id="module-list" class="module-list"></div>
-                            </div>
-                        </td>
-                    </tr>
-                </table>
-                <p style="text-align:center;">
-                    <input type="submit" name="save_course" class="button button-primary" value="Save Course">
-                </p>
-            </form>
-        </div>
-
-        <script>
-            function addModule() {
-                const input = document.getElementById('new-module-name');
-                const value = input.value.trim();
-                if (!value) return;
-
-                const list = document.getElementById('module-list');
-                const item = document.createElement('div');
-                item.className = 'module-tag';
-                item.innerHTML = `
-                    ${value}
-                    <input type="hidden" name="modules[]" value="${value}">
-                    <span class="remove-module" onclick="this.parentElement.remove()">×</span>
-                `;
-                list.appendChild(item);
-                input.value = '';
-            }
-        </script>
-
-        <?php
-        echo '</div>'; // end new-course-tab
+        echo '</tbody></table>';
+    } else {
+        echo '<p>No courses found.</p>';
     }
 
-    echo '</div>'; // end wrap
+    echo '</div></div>';
 }
+function render_course_new_page() {
+    global $wpdb;
+
+    echo '<div class="wrap"><h1>Course Selection</h1>';
+    render_course_selection_styles();
+
+    echo '<div class="new-course-tab">';
+
+    // Handle form submission
+    if (isset($_POST['save_course'])) {
+        $course_id = sanitize_text_field($_POST['course_id']);
+        $course_name = sanitize_text_field($_POST['course_name']);
+        $modules = array_map('sanitize_text_field', $_POST['modules'] ?? []);
+        $modules_json = json_encode(array_values(array_filter($modules)));
+
+        $wpdb->insert(
+            $wpdb->prefix . 'course_enrollments',
+            [
+                'course_id' => $course_id,
+                'course_name' => $course_name,
+                'modules' => $modules_json
+            ]
+        );
+
+        echo '<div class="notice notice-success is-dismissible"><p>✅ Course <strong>' . esc_html($course_name) . '</strong> saved with ID <strong>' . esc_html($course_id) . '</strong>.</p></div>';
+    }
+    ?>
+
+    <div class="form-container">
+        <form method="post">
+            <table class="form-table">
+                <tr>
+                    <th><label for="course_id">Course ID</label></th>
+                    <td><input type="text" name="course_id" id="course_id" required></td>
+                </tr>
+                <tr>
+                    <th><label for="course_name">Course Name</label></th>
+                    <td><input type="text" name="course_name" id="course_name" required></td>
+                </tr>
+                <tr>
+                    <th>Modules</th>
+                    <td>
+                        <div id="module-entry">
+                            <div class="module-input-row">
+                                <input type="text" id="new-module-name" placeholder="Enter Module Name" />
+                                <button type="button" class="add-button" onclick="addModule()">+</button>
+                            </div>
+                            <div id="module-list" class="module-list"></div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+            <p style="text-align:center;">
+                <input type="submit" name="save_course" class="button button-primary" value="Save Course">
+            </p>
+        </form>
+    </div>
+
+    <script>
+        function addModule() {
+            const input = document.getElementById('new-module-name');
+            const value = input.value.trim();
+            if (!value) return;
+
+            const list = document.getElementById('module-list');
+            const item = document.createElement('div');
+            item.className = 'module-tag';
+            item.innerHTML = `
+                ${value}
+                <input type="hidden" name="modules[]" value="${value}">
+                <span class="remove-module" onclick="this.parentElement.remove()">×</span>
+            `;
+            list.appendChild(item);
+            input.value = '';
+        }
+    </script>
+
+    <?php
+    echo '</div></div>';
+}
+
 
 function render_course_batches_page() {
     global $wpdb;
@@ -782,6 +816,7 @@ echo '</tbody></table>';
 
     echo '</div>';
 }
+
 
 
 
