@@ -1,5 +1,6 @@
 <?php
 
+
 // Create DB table on activation
 register_activation_hook(__FILE__, 'student_registration_create_table');
 function student_registration_create_table() {
@@ -97,6 +98,15 @@ function student_registration_admin_menu() {
         'instructors-list',
         'render_instructors_list_page'
     );
+add_submenu_page(
+    null, // ← Hidden from menu
+    'Create New Batch', // Page title
+    'Create New Batch', // Menu title (doesn't matter since it's hidden)
+    'manage_options',   // Capability
+    'create-new-batch', // Menu slug (used in admin.php?page=...)
+    'create_new_batch_page' // Callback function
+);
+
 }
 
 
@@ -299,7 +309,7 @@ function delete_course_enrollments_table() {
 }
 
 
-function render_students_list_page() {
+function render_students_list_page() { 
     global $wpdb;
 
     $table_name = $wpdb->prefix . 'student_registrations';
@@ -307,6 +317,62 @@ function render_students_list_page() {
 
     echo '<div class="wrap">';
     echo '<h1>Students List</h1>';
+
+    // Modern table styling (reuse batch table CSS)
+    echo '<style>
+        table.wp-list-table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+            background: #fff;
+            font-family: "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        table.wp-list-table th,
+        table.wp-list-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            border-right: 1px solid #eee;
+            text-align: center;
+        }
+
+        table.wp-list-table th {
+            background-color: #bbbbbb;
+            font-weight: 600;
+            color: #333;
+        }
+
+        table.wp-list-table th:last-child,
+        table.wp-list-table td:last-child {
+            border-right: none;
+        }
+
+        table.wp-list-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        table.wp-list-table tbody tr:nth-child(even) {
+            background-color: #f7f7f7;
+        }
+
+        table.wp-list-table tbody tr:nth-child(odd) {
+            background-color: #ffffff;
+        }
+
+        table.wp-list-table tbody tr:hover {
+            background-color: #e6f4ff !important;
+            cursor: pointer;
+        }
+
+        .wp-list-table th, .wp-list-table td {
+            vertical-align: middle;
+        }
+    </style>';
 
     if (!empty($students)) {
         echo '<table class="wp-list-table widefat fixed striped">';
@@ -334,21 +400,13 @@ function render_students_list_page() {
         }
 
         echo '</tbody></table>';
-    
     } else {
         echo '<p>No student records found.</p>';
     }
- ?>
- <style>
-    .wp-list-table th, .wp-list-table td {
-        text-align: center;
-        vertical-align: middle;
-    }
-</style>
 
-     <?php
     echo '</div>';
 }
+
 function course_selection_admin_menu() { 
 
     add_submenu_page(
@@ -551,7 +609,7 @@ function render_course_selection_list_page() {
                 echo '<td>' . esc_html(implode(', ', $modules)) . '</td>';
                 echo '<td>';
                 echo '<a href="?page=course-selection-list&edit=' . intval($course->id) . '" class="button button-primary" style="margin-right:5px;">Edit</a>';
-                echo '<a href="admin.php?page=course-batches&course_id=' . intval($course->id) . '" class="button button-primary">Batch</a>';
+                echo '<a href="' . admin_url('admin.php?page=course-batches&course_name=' . urlencode($course->course_name)) . '" class="button button-primary">Batch</a>';
                 echo '</td>';
             }
             echo '</tr>';
@@ -646,175 +704,964 @@ function render_course_new_page() {
 }
 
 
-function render_course_batches_page() {
+
+// NEW INSTRUCTOR PAGE START
+function render_instructor_new_page() {
+    $success = false;
+
+    if (isset($_POST['submit_instructor_registration'])) {
+        $success = instructor_registration_form_handler();
+    }
+    ?>
+    <div class="wrap">
+        <h1 style="text-align:center;">👨‍🏫 New Instructor Registration</h1>
+
+        <?php if ($success) : ?>
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    const redirectTo = '<?php echo admin_url("admin.php?page=instructors-list"); ?>';
+                    if (confirm("✅ Instructor registered successfully!\n\nClick OK to view Instructor List.")) {
+                        window.location.href = redirectTo;
+                    }
+                });
+            </script>
+        <?php endif; ?>
+
+        <style>
+            .instructor-form-wrapper {
+                display: flex;
+                justify-content: center;
+                align-items: flex-start;
+                margin-top: 40px;
+            }
+
+            .instructor-form-container {
+                background: #fff;
+                border: 1px solid #ccd0d4;
+                padding: 30px;
+                border-radius: 8px;
+                max-width: 600px;
+                width: 100%;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            }
+
+            .instructor-form-container .form-row {
+                margin-bottom: 20px;
+            }
+
+            .instructor-form-container label {
+                font-weight: 600;
+                display: block;
+                margin-bottom: 6px;
+                color: #111;
+            }
+
+            .instructor-form-container input[type="text"],
+            .instructor-form-container input[type="email"],
+            .instructor-form-container input[type="date"] {
+                width: 100%;
+                padding: 8px 12px;
+                font-size: 14px;
+                border: 1px solid #ccd0d4;
+                border-radius: 4px;
+            }
+
+            .instructor-form-container .dashicons {
+                color: #000;
+                margin-right: 6px;
+            }
+            .gender-options {
+                display: flex;
+                gap: 20px;
+                align-items: center;
+            }
+        </style>
+
+        <div class="instructor-form-wrapper">
+            <div class="instructor-form-container">
+                <form method="post" action="">
+                    <div class="form-row">
+                        <label for="instructor_name"><span class="dashicons dashicons-businessman"></span> Full Name</label>
+                        <input type="text" name="instructor_name" required>
+                    </div>
+                    <div class="form-row">
+                        <label><span class="dashicons dashicons-groups"></span> Gender</label>
+                        <div class="gender-options">
+                            <label><input type="radio" name="gender" value="Male" required> Male</label>
+                            <label><input type="radio" name="gender" value="Female" required> Female</label>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="subject"><span class="dashicons dashicons-welcome-learn-more"></span> Subject / Expertise</label>
+                        <input type="text" name="subject" required>
+                    </div>
+
+                    <div class="form-row">
+                        <label for="email"><span class="dashicons dashicons-email-alt"></span> Email Address</label>
+                        <input type="email" name="email" required>
+                    </div>
+
+                    <div class="form-row">
+                        <label for="phone"><span class="dashicons dashicons-phone"></span> Phone Number</label>
+                        <input type="text" name="phone" required>
+                    </div>
+
+                    <input type="submit" name="submit_instructor_registration" class="button button-primary" value="Register Instructor">
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php
+}
+function instructor_registration_form_handler() {
     global $wpdb;
+    $table_name = $wpdb->prefix . 'instructors';
+
+    $instructor_name = sanitize_text_field($_POST['instructor_name']);
+    $gender = sanitize_text_field($_POST['gender']);
+    $subject = sanitize_text_field($_POST['subject']);
+    $email = sanitize_email($_POST['email']);
+    $phone = sanitize_text_field($_POST['phone']);
+
+    $inserted = $wpdb->insert($table_name, [
+        'instructor_name' => $instructor_name,
+        'gender'          => $gender,
+        'subject'          => $subject,
+        'email'            => $email,
+        'phone'            => $phone,
+        'created_at'       => current_time('mysql', 1)
+    ]);
+
+    return ($inserted !== false);
+}
+register_activation_hook(__FILE__, 'create_instructors_table_on_activation');
+
+function create_instructors_table_on_activation() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'instructors';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id INT(11) NOT NULL AUTO_INCREMENT,
+        instructor_name VARCHAR(255) NOT NULL,
+        gender VARCHAR(20) NOT NULL,
+        subject VARCHAR(255) NOT NULL,
+        email VARCHAR(100) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+    ) $charset_collate;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta($sql);
+}
+
+register_deactivation_hook(__FILE__, 'my_plugin_deactivate');
+
+function my_plugin_deactivate() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'instructors';
+
+    // Drop the table if it exists
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
+}
+
+// NEW INSTRUCTOR PAGE END
+
+function render_instructors_list_page() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'instructors';
+
+    $instructors = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
+
+    echo '<div class="wrap"><h1>List of Instructors</h1>';
+
+    echo '<style>
+        table.wp-list-table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+            background: #fff;
+            font-family: "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        table.wp-list-table th,
+        table.wp-list-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            border-right: 1px solid #eee;
+            text-align: center;
+        }
+
+        table.wp-list-table th {
+            background-color: #bbbbbb;
+            font-weight: 600;
+            color: #333;
+        }
+
+        table.wp-list-table th:last-child,
+        table.wp-list-table td:last-child {
+            border-right: none;
+        }
+
+        table.wp-list-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        table.wp-list-table tbody tr:nth-child(even) {
+            background-color: #f7f7f7;
+        }
+
+        table.wp-list-table tbody tr:nth-child(odd) {
+            background-color: #ffffff;
+        }
+
+        table.wp-list-table tbody tr {
+            transition: background-color 0.2s ease;
+        }
+
+        table.wp-list-table tbody tr:hover {
+            background-color: #e6f4ff !important;
+            cursor: pointer;
+        }
+
+        table.wp-list-table th:first-child,
+        table.wp-list-table td:first-child {
+            width: 40px;
+            text-align: center;
+        }
+
+        .status-button {
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: none;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: default;
+            pointer-events: none;
+        }
+
+        .status-button.enabled {
+            background-color: #4caf50;
+            color: white;
+        }
+
+        .status-button.disabled {
+            background-color: #ccc;
+            color: #666;
+        }
+
+        .disabled-row {
+            color: #999 !important;
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .disabled-row td {
+            text-decoration: line-through;
+        }
+
+        table.wp-list-table tbody tr:not(.disabled-row):hover {
+            background-color: #e6f4ff !important;
+        }
+    </style>';
+
+    if ($instructors) {
+        echo '<table class="wp-list-table">';
+        echo '<thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Instructor ID</th>
+                    <th>Full Name</th>
+                    <th>Gender</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+
+                </tr>
+              </thead>';
+        echo '<tbody>';
+
+        $count = 1;
+        foreach ($instructors as $inst) {
+            echo "<tr class='$row_class'>";
+            echo '<td>' . esc_html($count++) . '</td>';
+            echo '<td>' . esc_html($inst->id) . '</td>';
+            echo '<td>' . esc_html($inst->instructor_name) . '</td>';
+            echo '<td>' . esc_html($inst->gender) . '</td>';
+            echo '<td>' . esc_html($inst->email) . '</td>';
+            echo '<td>' . esc_html($inst->phone) . '</td>';
+
+            echo '</tr>';
+        }
+
+        echo '</tbody></table>';
+    } else {
+        echo '<p>No instructors found.</p>';
+    }
+
+    echo '</div>';
+}
+
+
+
+// BATCH PAGE //
+function render_course_batches_page() {
+global $wpdb;
+
+    // Get course_name from URL if set
+    $course_name_filter = isset($_GET['course_name']) ? sanitize_text_field($_GET['course_name']) : '';
+
+    // Get all distinct courses for buttons
+    $courses = $wpdb->get_results("SELECT DISTINCT course_name FROM {$wpdb->prefix}course_enrollments");
 
     echo '<div class="wrap"><h1>Ongoing Batches</h1>';
 
-    $course_id = isset($_GET['course_id']) ? intval($_GET['course_id']) : 0;
-
-    if ($course_id) {
-        echo '<h2>Batch List</h2>';
+    // Show buttons for each course to create new batch with that course_name
+    foreach ($courses as $course) {
+        echo '<p style="margin: 20px 0;">
+            <a href="' . admin_url('admin.php?page=create-new-batch&course_name=' . urlencode($course->course_name)) . '" class="button button-primary" style="font-size:13px; padding: 5px 12px;">
+                + Create New Batch 
+            </a>
+        </p>';
     }
 
-    $calendar_table = $wpdb->prefix . 'booking_calendar';
-    $query = $course_id
-        ? $wpdb->prepare("SELECT start_date, end_date, start_time, end_time FROM $calendar_table WHERE course_id = %d GROUP BY start_date, end_date, start_time, end_time ORDER BY start_date ASC", $course_id)
-        : "SELECT start_date, end_date, start_time, end_time FROM $calendar_table GROUP BY start_date, end_date, start_time, end_time ORDER BY start_date DESC";
 
-    $batches = $wpdb->get_results($query);
 
-    // Modern table CSS
-echo '<style>
-    table.wp-list-table {
-        border-collapse: separate;
-        border-spacing: 0;
-        width: 100%;
-        background: #fff;
-        font-family: "Segoe UI", Roboto, Arial, sans-serif;
-        font-size: 14px;
-        border: 1px solid #ccc;
-        border-radius: 6px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    }
+$batch_table = $wpdb->prefix . 'custom_batches';
 
-    table.wp-list-table th,
-    table.wp-list-table td {
-        padding: 12px 15px;
-        border-bottom: 1px solid #eee;
-        border-right: 1px solid #eee;
-        text-align: center;
-    }
+if ($course_name_filter !== '') {
+    // Use prepared statements to avoid SQL injection
+    $batches = $wpdb->get_results(
+        $wpdb->prepare("SELECT * FROM $batch_table WHERE course_name = %s ORDER BY start_date DESC", $course_name_filter)
+    );
 
-    table.wp-list-table th {
-        background-color: #bbbbbb;
-        font-weight: 600;
-        color: #333;
-    }
-
-    table.wp-list-table th:last-child,
-    table.wp-list-table td:last-child {
-        border-right: none;
-    }
-
-    table.wp-list-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    /* Alternating row colors */
-    table.wp-list-table tbody tr:nth-child(even) {
-        background-color: #f7f7f7; /* Light grey */
-    }
-
-    table.wp-list-table tbody tr:nth-child(odd) {
-        background-color: #ffffff; /* White */
-    }
-
-    table.wp-list-table tbody tr:hover {
-        background-color: #f0f8ff;
-    }
-    /* Add transition and hover effect for clickable rows */
-table.wp-list-table tbody tr {
-    transition: background-color 0.2s ease;
+    echo '<h2>Batches for course: ' . esc_html($course_name_filter) . '</h2>';
+} else {
+    $batches = $wpdb->get_results("SELECT * FROM $batch_table ORDER BY start_date DESC");
 }
 
-table.wp-list-table tbody tr:hover {
-    background-color: #e6f4ff !important;
-    cursor: pointer;
-}
-table.wp-list-table th:first-child,
-table.wp-list-table td:first-child {
-    width: 40px;
-    text-align: center;
-}
-.status-button {
-    padding: 6px 12px;
-    border-radius: 4px;
-    border: none;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: default;
-    pointer-events: none;
-}
-
-.status-button.enabled {
-    background-color: #4caf50;
-    color: white;
-}
-
-.status-button.disabled {
-    background-color: #ccc;
-    color: #666;
-}
-.disabled-row {
-    color: #999 !important;
-    opacity: 0.6;
-    pointer-events: none;
-}
-
-.disabled-row td {
-    text-decoration: line-through;
-}
-
-table.wp-list-table tbody tr:not(.disabled-row):hover {
-    background-color: #e6f4ff !important;
-    cursor: pointer;
-}
-
-
-
-</style>';
-
+    // Styles
+    echo '<style>
+        table.wp-list-table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+            background: #fff;
+            font-family: "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        table.wp-list-table th, table.wp-list-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            border-right: 1px solid #eee;
+            text-align: center;
+        }
+        table.wp-list-table th {
+            background-color: #bbbbbb;
+            font-weight: 600;
+            color: #333;
+        }
+        table.wp-list-table th:last-child,
+        table.wp-list-table td:last-child {
+            border-right: none;
+        }
+        table.wp-list-table tr:last-child td {
+            border-bottom: none;
+        }
+        table.wp-list-table tbody tr:nth-child(even) {
+            background-color: #f7f7f7;
+        }
+        table.wp-list-table tbody tr:nth-child(odd) {
+            background-color: #ffffff;
+        }
+        table.wp-list-table tbody tr:hover {
+            background-color: #e6f4ff !important;
+            cursor: pointer;
+        }
+        .status-button {
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: none;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: default;
+            pointer-events: none;
+        }
+        .status-button.enabled {
+            background-color: #4caf50;
+            color: white;
+        }
+        .status-button.disabled {
+            background-color: #ccc;
+            color: #666;
+        }
+        .disabled-row {
+            color: #999 !important;
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        .disabled-row td {
+            text-decoration: line-through;
+        }
+    </style>';
 
     if ($batches) {
-echo '<table class="wp-list-table widefat fixed striped">';
-echo '<thead><tr><th>No.</th><th>Start Date</th><th>End Date</th><th>Start Time</th><th>End Time</th><th>Instructor Name</th><th>Status</th></tr></thead>';
-echo '<tbody>';
+        echo '<table class="wp-list-table widefat fixed striped">';
+        echo '<thead><tr>
+            <th>No.</th>
+            <th>Batch ID</th>
+            <th>Instructor Name</th>
+            <th>Course Name</th>
+            <th>Start Date</th>
+            <th>End Date</th>
+            <th>Start Time</th>
+            <th>End Time</th>
+            <th>Created At</th>
+            <th>Status</th>
+        </tr></thead>';
+        echo '<tbody>';
 
-$enabled_batches = [];
-$disabled_batches = [];
-$current_date = date('Y-m-d');
+        $current_date = date('Y-m-d');
+        $row_number = 1;
 
-foreach ($batches as $batch) {
-    $is_expired = ($batch->end_date < $current_date);
-    if ($is_expired) {
-        $disabled_batches[] = $batch;
-    } else {
-        $enabled_batches[] = $batch;
-    }
-}
+        foreach ($batches as $batch) {
+            $is_expired = ($batch->end_date < $current_date);
+            $row_class = $is_expired ? 'disabled-row' : '';
+            $status_button = $is_expired
+                ? '<button class="status-button disabled" disabled>Disabled</button>'
+                : '<button class="status-button enabled">Enabled</button>';
 
-$row_number = 1;
+            echo '<tr class="' . $row_class . '">';
+            echo '<td>' . $row_number++ . '</td>';
+            echo '<td>' . esc_html($batch->batch_id) . '</td>';
+            echo '<td>' . esc_html($batch->instructor_name) . '</td>';
+            echo '<td>' . esc_html($batch->course_name) . '</td>';
+            echo '<td>' . esc_html($batch->start_date) . '</td>';
+            echo '<td>' . esc_html($batch->end_date) . '</td>';
+            echo '<td>' . esc_html($batch->start_time) . '</td>';
+            echo '<td>' . esc_html($batch->end_time) . '</td>';
+            echo '<td>' . esc_html($batch->created_at) . '</td>';
+            echo '<td>' . $status_button . '</td>';
+            echo '</tr>';
+        }
 
-// Merge enabled first, then disabled
-foreach (array_merge($enabled_batches, $disabled_batches) as $batch) {
-    $is_expired = ($batch->end_date < $current_date);
-    $row_class = $is_expired ? 'disabled-row' : '';
-    $status_button = $is_expired
-        ? '<button class="status-button disabled" disabled>Disabled</button>'
-        : '<button class="status-button enabled">Enabled</button>';
-    $instructor = !empty($batch->instructor_name) ? esc_html($batch->instructor_name) : '<em style="color:#888;">Not Assigned</em>';
-
-    echo '<tr class="' . $row_class . '" onclick="window.location.href=\'#\'">';
-    echo '<td>' . $row_number++ . '</td>';
-    echo '<td>' . esc_html($batch->start_date) . '</td>';
-    echo '<td>' . esc_html($batch->end_date) . '</td>';
-    echo '<td>' . esc_html($batch->start_time) . '</td>';
-    echo '<td>' . esc_html($batch->end_time) . '</td>';
-    echo '<td>' . $instructor . '</td>';
-    echo '<td>' . $status_button . '</td>';
-    echo '</tr>';
-}
-
-
-echo '</tbody></table>';
-
+        echo '</tbody></table>';
     } else {
         echo '<p>No batches found.</p>';
     }
 
     echo '</div>';
+}
+register_activation_hook(__FILE__, 'create_custom_batch_table');
+register_deactivation_hook(__FILE__, 'drop_custom_batch_table');
+
+function create_custom_batch_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'custom_batches';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        batch_id INT NOT NULL AUTO_INCREMENT,
+        instructor_name VARCHAR(255),
+        course_name VARCHAR(255),
+        start_date DATE,
+        end_date DATE,
+        start_time TIME,
+        end_time TIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (batch_id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+
+function drop_custom_batch_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'custom_batches';
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
+}
+
+
+
+// CREATE NEW BATCH USING CALENDER //
+function create_new_batch_page() {
+    global $wpdb;
+    $selected_course = isset($_GET['course_name']) ? sanitize_text_field($_GET['course_name']) : '';
+
+    $instructors = $wpdb->get_results("SELECT instructor_name, subject AS course_name FROM {$wpdb->prefix}instructors");
+
+    ?>
+    <style>
+        .batch-form {
+            max-width: 450px;
+            background: #fff;
+            padding: 25px 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgb(0 0 0 / 0.1);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #333;
+            margin: 20px auto;
+        }
+        .batch-form h1 {
+            font-weight: 600;
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+            color: #222;
+            text-align: center;
+        }
+        .batch-form label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .batch-form select,
+        .batch-form input[type="text"] {
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 1rem;
+            border: 1.8px solid #ccc;
+            border-radius: 6px;
+            transition: border-color 0.3s ease;
+        }
+        .batch-form select:focus,
+        .batch-form input[type="text"]:focus {
+            border-color: #0073aa;
+            outline: none;
+        }
+        .batch-form .form-group {
+            margin-bottom: 20px;
+        }
+        .batch-form button {
+            background-color: #0073aa;
+            color: #fff;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: background-color 0.3s ease;
+            width: 100%;
+        }
+        .batch-form button:hover {
+            background-color: #005a87;
+        }
+        .batch-form #saveBatchButton {
+            background-color: #28a745;
+            margin-top: 10px;
+            display: none;
+        }
+        .batch-form #saveBatchButton:hover {
+            background-color: #1e7e34;
+        }
+        .batch-form #selectedDateTime {
+            font-weight: 600;
+            color: #555;
+            display: inline-block;
+            margin-left: 8px;
+        }
+        .batch-form .button-container {
+            margin-top: 10px;
+        }
+
+    </style>
+
+    <div class="batch-form">
+        <h1>Create New Batch</h1>
+
+<div class="form-group">
+    <label for="main_instructor_name">Instructor Name:</label>
+    <select id="main_instructor_name" name="main_instructor_name">
+        <option value="">-- Select Instructor --</option>
+        <?php foreach ($instructors as $instructor): ?>
+            <option value="<?= esc_attr($instructor->instructor_name) ?>" data-course="<?= esc_attr($instructor->course_name) ?>">
+                <?= esc_html($instructor->instructor_name) ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+</div>
+
+<div class="form-group">
+    <label for="main_course_name">Course:</label>
+    <input 
+        type="text" 
+        id="main_course_name" 
+        name="main_course_name" 
+        readonly 
+        value="<?php echo esc_attr($selected_course); ?>" 
+        <?php echo $selected_course ? 'data-from-url="true"' : ''; ?> 
+    />
+</div>
+
+
+
+        <div class="button-container">
+            <button id="openCalendarModal" type="button">Select Date and Time</button>
+        </div>
+
+        <input type="hidden" id="hidden_start_date" name="hidden_start_date" />
+        <input type="hidden" id="hidden_end_date" name="hidden_end_date" />
+        <input type="hidden" id="hidden_start_time" name="hidden_start_time" />
+        <input type="hidden" id="hidden_end_time" name="hidden_end_time" />
+
+        <p>Selected Date and Time: <span id="selectedDateTime">None</span></p>
+
+        <button id="saveBatchButton" type="button">Save Batch</button>
+    </div>
+    <?php
+    ?>
+
+    <div id="calendarModal" class="modal" style="display:none;">
+        <div class="modal-content" style="background:#fff; width: 450px; margin: 50px auto; padding: 20px; border-radius: 8px; max-height: 80vh; overflow-y:auto;">
+            <span id="closeCalendarModal" style="cursor:pointer; float:right; font-size: 28px;">&times;</span>
+            <h2>Book Time Slot For New Batch</h2>
+            <form id="bookingForm">
+                <label for="instructor_name">Instructor Name:</label>
+                <input type="text" id="instructor_name" name="instructor_name" readonly style="width: 100%;" />
+
+                <label for="subject_name">Subject:</label>
+                <input type="text" id="course_name" name="course_name" readonly style="width: 100%; margin-bottom: 15px;" />
+
+                <label for="start_date">Start Date:</label>
+                <input type="date" id="start_date" name="start_date" required style="width: 100%; margin-bottom: 15px;">
+
+                <label for="end_date">End Date:</label>
+                <input type="date" id="end_date" name="end_date" required style="width: 100%; margin-bottom: 15px;">
+
+                <div id="availableSlotsContainer" style="margin-bottom: 15px;">
+                    <label>Available Time Slots:</label><br>
+                    <div id="availableSlots"></div>
+                </div>
+
+                <div id="selected_time_container" style="margin-bottom: 15px; display: none;">
+                    <div style="display: flex; align-items: center; gap: 20px;">
+                        <div>
+                            <label for="start_time">Start Time:</label><br>
+                            <input type="time" id="start_time" name="start_time" style="width: 100%;">
+                        </div>
+                        <div>
+                            <label for="end_time">End Time:</label><br>
+                            <input type="time" id="end_time" name="end_time" style="width: 100%;">
+                        </div>
+                    </div>
+                </div>
+
+                <button type="button" id="ok" style="background-color: #21759b; color: white; padding: 10px 20px; border:none; border-radius:5px; cursor:pointer;">OK</button>
+                <button type="button" id="cancelButton" style="background-color: gray; color: white; padding: 10px 20px; border:none; border-radius:5px; cursor:pointer;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <style>
+    .modal {
+        position: fixed !important;
+        inset: 0;
+        width: 100vw !important;
+        height: 100vh !important;
+        background-color: rgba(0,0,0,0.5);
+        display: none;
+        z-index: 9999;
+        overflow: hidden;
+    }
+    .modal-content {
+        background: white;
+        box-sizing: border-box;
+    }
+    </style>
+<script>
+const ajaxurl = "<?php echo admin_url('admin-ajax.php'); ?>";
+</script>
+
+    <script>
+document.addEventListener("DOMContentLoaded", function () {
+    const mainInstructorSelect = document.getElementById("main_instructor_name");
+    const mainCourseInput = document.getElementById("main_course_name");
+    const openModalBtn = document.getElementById("openCalendarModal");
+    const modal = document.getElementById("calendarModal");
+    const closeModalBtn = document.getElementById("closeCalendarModal");
+    const cancelButton = document.getElementById("cancelButton");
+
+    const modalInstructorInput = document.getElementById("instructor_name");
+    const modalCourseInput = document.getElementById("course_name");
+
+    const startDateInput = document.getElementById("start_date");
+    const endDateInput = document.getElementById("end_date");
+    const availableSlotsDiv = document.getElementById("availableSlots");
+    const selectedTimeContainer = document.getElementById("selected_time_container");
+    const startTimeInput = document.getElementById("start_time");
+    const endTimeInput = document.getElementById("end_time");
+
+    // When instructor changes, update course input unless course was set from URL
+    mainInstructorSelect.addEventListener("change", () => {
+        const selected = mainInstructorSelect.options[mainInstructorSelect.selectedIndex];
+        if (!mainCourseInput.dataset.fromUrl) {
+            mainCourseInput.value = selected ? selected.getAttribute("data-course") || "" : "";
+        }
+    });
+
+    // OPEN modal on button click
+    openModalBtn.addEventListener("click", () => {
+        // Set modal inputs based on main form inputs
+        modalInstructorInput.value = mainInstructorSelect.value || "";
+        modalCourseInput.value = mainCourseInput.value || "";
+
+        // Set start date to today and readonly
+        const today = new Date().toISOString().split('T')[0];
+        startDateInput.value = today;
+        startDateInput.readOnly = true;
+
+        // Clear/reset other modal fields
+        endDateInput.value = "";
+        availableSlotsDiv.innerHTML = "";
+        selectedTimeContainer.style.display = "none";
+        startTimeInput.value = "";
+        endTimeInput.value = "";
+
+        // Show the modal
+        modal.style.display = "block";
+        document.body.classList.add("modal-open");
+    });
+
+    // CLOSE modal helpers
+    function closeModal() {
+        modal.style.display = "none";
+        document.body.classList.remove("modal-open");
+        document.getElementById("bookingForm").reset();
+        availableSlotsDiv.innerHTML = "";
+        selectedTimeContainer.style.display = "none";
+        startTimeInput.value = "";
+        endTimeInput.value = "";
+    }
+    closeModalBtn.addEventListener("click", closeModal);
+    cancelButton.addEventListener("click", closeModal);
+    window.addEventListener("click", (event) => {
+        if (event.target === modal) closeModal();
+    });
+
+    // OK button: validate inputs, set hidden fields, update display, close modal
+    document.getElementById("ok").addEventListener("click", () => {
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        const startTime = startTimeInput.value;
+        const endTime = endTimeInput.value;
+        const instructor = modalInstructorInput.value;
+        const course = modalCourseInput.value;
+
+        if (!startDate || !endDate || !startTime || !endTime || !instructor || !course) {
+            alert("Please fill in all required fields.");
+            return;
+        }
+
+        // Save values to hidden inputs in main form
+        document.getElementById("hidden_start_date").value = startDate;
+        document.getElementById("hidden_end_date").value = endDate;
+        document.getElementById("hidden_start_time").value = startTime;
+        document.getElementById("hidden_end_time").value = endTime;
+
+        // Show selected date and time summary
+        document.getElementById("selectedDateTime").textContent =
+            `From ${startDate} to ${endDate}, ${startTime} - ${endTime}`;
+
+        // Show the Save button
+        document.getElementById("saveBatchButton").style.display = "inline-block";
+
+        // Close modal
+        closeModal();
+    });
+
+    // Fetch available slots based on date range
+    function fetchAvailableSlots() {
+        const start = startDateInput.value;
+        const end = endDateInput.value;
+
+        if (!start || !end) {
+            availableSlotsDiv.innerHTML = "";
+            selectedTimeContainer.style.display = "none";
+            return;
+        }
+
+        if (start > end) {
+            availableSlotsDiv.innerHTML = "<p style='color:red;'>End date must be after start date.</p>";
+            selectedTimeContainer.style.display = "none";
+            return;
+        }
+
+        availableSlotsDiv.innerHTML = "Loading available slots...";
+
+        fetch(`${ajaxurl}?action=get_available_class_slots&start_date=${start}&end_date=${end}`)
+            .then(res => res.json())
+            .then(data => {
+                if (!data.slots || data.slots.length === 0) {
+                    availableSlotsDiv.innerHTML = "<p>No available slots found for the selected dates.</p>";
+                    selectedTimeContainer.style.display = "none";
+                    return;
+                }
+
+                availableSlotsDiv.innerHTML = "";
+
+                data.slots.forEach(slot => {
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox";
+                    checkbox.name = "time_slots[]";
+                    checkbox.value = slot;
+                    checkbox.id = "slot_" + slot.replace(/[^a-zA-Z0-9]/g, "_");
+
+                    const label = document.createElement("label");
+                    label.htmlFor = checkbox.id;
+                    label.textContent = slot;
+
+                    const container = document.createElement("div");
+                    container.appendChild(checkbox);
+                    container.appendChild(label);
+
+                    availableSlotsDiv.appendChild(container);
+
+                    checkbox.addEventListener("change", updateStartEndTime);
+                });
+
+                updateStartEndTime();
+            })
+            .catch(() => {
+                availableSlotsDiv.innerHTML = "<p>Error loading available slots. Please try again.</p>";
+                selectedTimeContainer.style.display = "none";
+            });
+    }
+
+    // Update start/end time inputs based on selected checkboxes
+    function updateStartEndTime() {
+        const checkboxes = Array.from(document.querySelectorAll('input[name="time_slots[]"]'));
+        const checked = checkboxes.filter(cb => cb.checked);
+
+        if (checked.length === 0) {
+            selectedTimeContainer.style.display = "none";
+            startTimeInput.value = "";
+            endTimeInput.value = "";
+            return;
+        }
+
+        let allSlots = checkboxes.map(cb => {
+            const [start, end] = cb.value.split(" - ").map(t => t.trim());
+            return { start, end, value: cb.value, checkbox: cb };
+        });
+
+        allSlots.sort((a, b) => a.start.localeCompare(b.start));
+
+        const selectedIndices = checked.map(cb => allSlots.findIndex(slot => slot.value === cb.value));
+        const minIndex = Math.min(...selectedIndices);
+        const maxIndex = Math.max(...selectedIndices);
+
+        // Check all slots between min and max to make a continuous range
+        for (let i = minIndex; i <= maxIndex; i++) {
+            if (!allSlots[i].checkbox.checked) {
+                allSlots[i].checkbox.checked = true;
+            }
+        }
+
+        const selectedSlots = allSlots.slice(minIndex, maxIndex + 1);
+        startTimeInput.value = selectedSlots[0].start;
+        endTimeInput.value = selectedSlots[selectedSlots.length - 1].end;
+        selectedTimeContainer.style.display = "block";
+    }
+
+    // Trigger fetching slots when dates change
+    startDateInput.addEventListener("change", fetchAvailableSlots);
+    endDateInput.addEventListener("change", fetchAvailableSlots);
+
+    // Save batch button AJAX submission
+    document.getElementById("saveBatchButton").addEventListener("click", () => {
+        const instructor = mainInstructorSelect.value;
+        const course = mainCourseInput.value;
+        const startDate = document.getElementById("hidden_start_date").value;
+        const endDate = document.getElementById("hidden_end_date").value;
+        const startTime = document.getElementById("hidden_start_time").value;
+        const endTime = document.getElementById("hidden_end_time").value;
+
+        if (!instructor || !course || !startDate || !endDate || !startTime || !endTime) {
+            alert("Missing values. Please complete the form first.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("action", "save_batch_data");
+        formData.append("instructor_name", instructor);
+        formData.append("course_name", course);
+        formData.append("start_date", startDate);
+        formData.append("end_date", endDate);
+        formData.append("start_time", startTime);
+        formData.append("end_time", endTime);
+
+        fetch(ajaxurl, {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(result => {
+            if (result.success) {
+                alert("Batch saved successfully!");
+                document.getElementById("saveBatchButton").style.display = "none";
+            } else {
+                alert("Failed to save batch: " + (result.data || "Unknown error."));
+            }
+        })
+        .catch(() => alert("AJAX error occurred."));
+    });
+});
+
+    </script>
+    <?php
+
+
+
+
+}
+add_action('wp_ajax_save_batch_data', 'handle_save_batch_data');
+
+function handle_save_batch_data() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'custom_batches';
+
+    // Sanitize inputs
+    $instructor_name = sanitize_text_field($_POST['instructor_name']);
+    $course_name     = sanitize_text_field($_POST['course_name']);
+    $start_date      = sanitize_text_field($_POST['start_date']);
+    $end_date        = sanitize_text_field($_POST['end_date']);
+    $start_time      = sanitize_text_field($_POST['start_time']);
+    $end_time        = sanitize_text_field($_POST['end_time']);
+
+    if (!$instructor_name || !$course_name || !$start_date || !$end_date || !$start_time || !$end_time) {
+        wp_send_json_error("Missing required fields.");
+    }
+
+    $result = $wpdb->insert(
+        $table_name,
+        [
+            'instructor_name' => $instructor_name,
+            'course_name'     => $course_name,
+            'start_date'      => $start_date,
+            'end_date'        => $end_date,
+            'start_time'      => $start_time,
+            'end_time'        => $end_time,
+        ],
+        ['%s', '%s', '%s', '%s', '%s', '%s']
+    );
+
+    if ($result) {
+        wp_send_json_success("Batch saved successfully.");
+    } else {
+        wp_send_json_error("Database insert failed.");
+    }
 }
 
 
