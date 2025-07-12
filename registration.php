@@ -1052,8 +1052,9 @@ function get_applicants_by_batch_callback() {
     }
 
     $batch_no = sanitize_text_field($_POST['batch_no']);
-
     global $wpdb;
+
+    // Get course_name for the batch
     $course_name = $wpdb->get_var(
         $wpdb->prepare(
             "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s LIMIT 1",
@@ -1066,61 +1067,51 @@ function get_applicants_by_batch_callback() {
         wp_die();
     }
 
-    $entries = get_option('student_form_entries', []);
-    $filtered = array_filter($entries, function ($entry) use ($course_name) {
-        return isset($entry['course']) && $entry['course'] === $course_name;
-    });
+    $table_name = $wpdb->prefix . 'student_enrollments';
 
-    if (empty($filtered)) {
-        echo "<p>No applicants found for course: <strong>{$course_name}</strong></p>";
+    // Query applicants from the enrollments table by course name
+    $applicants = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT full_name, dob, gender, student_email, parent_phone 
+             FROM $table_name 
+             WHERE course_name = %s",
+            $course_name
+        ),
+        ARRAY_A
+    );
+
+    if (empty($applicants)) {
+        echo "<p>No applicants found for course: <strong>" . esc_html($course_name) . "</strong></p>";
     } else {
-echo "<div style='max-height:300px; overflow:auto;'>
-    <table style='width:100%; border-collapse:collapse;'>
-        <thead>
-            <tr>
-                <th style='border-bottom:1px solid #ccc; padding:8px;'>Student Name</th>
-                <th style='border-bottom:1px solid #ccc; padding:8px;'>DOB</th>
-                <th style='border-bottom:1px solid #ccc; padding:8px;'>Gender</th>
-                <th style='border-bottom:1px solid #ccc; padding:8px;'>Email</th>
-                <th style='border-bottom:1px solid #ccc; padding:8px;'>Phone Number</th>
-                <th style='border-bottom:1px solid #ccc; padding:8px;'>Enroll</th>
-                <th style='border-bottom:1px solid #ccc; padding:8px;'>Actions</th>
-            </tr>
-        </thead>
-        <tbody>";
+        echo "<div style='max-height:300px; overflow:auto;'>
+            <table style='width:100%; border-collapse:collapse;'>
+                <thead>
+                    <tr>
+                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Student Name</th>
+                        <th style='border-bottom:1px solid #ccc; padding:8px;'>DOB</th>
+                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Gender</th>
+                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Email</th>
+                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Phone Number</th>
+                    </tr>
+                </thead>
+                <tbody>";
 
-
-foreach ($filtered as $index => $entry) {
-    echo "<tr>
-        <td style='padding:8px; border-bottom:1px solid #eee;'>{$entry['full_name']}</td>
-        <td style='padding:8px; border-bottom:1px solid #eee;'>{$entry['dob']}</td>
-        <td style='padding:8px; border-bottom:1px solid #eee;'>{$entry['gender']}</td>
-        <td style='padding:8px; border-bottom:1px solid #eee;'>{$entry['student_email']}</td>
-        <td style='padding:8px; border-bottom:1px solid #eee;'>{$entry['parent_phone']}</td>
-
-        <!-- Enroll Button -->
-        <td style='padding:8px; border-bottom:1px solid #eee; text-align:center;'>
-            <button class='button button-primary enroll-btn' data-id='{$index}'>Enroll</button>
-        </td>
-
-        <!-- Edit/Delete Icons -->
-        <td style='padding:8px; border-bottom:1px solid #eee; text-align:center;'>
-            <button class='edit-btn' title='Edit' data-id='{$index}' style='border:none; background:none; cursor:pointer; margin-right:5px;'>
-                <span class='dashicons dashicons-edit'></span>
-            </button>
-            <button class='delete-btn' title='Delete' data-id='{$index}' style='border:none; background:none; cursor:pointer; color:red;'>
-                <span class='dashicons dashicons-trash'></span>
-            </button>
-        </td>
-    </tr>";
-}
-
+        foreach ($applicants as $applicant) {
+            echo "<tr>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['full_name']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['dob']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['gender']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['student_email']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['parent_phone']) . "</td>
+            </tr>";
+        }
 
         echo "</tbody></table></div>";
     }
 
     wp_die();
 }
+
 
 
 
@@ -1256,6 +1247,12 @@ if ($course_fee !== null) {
         .disabled-row td {
             text-decoration: line-through;
         }
+        .dropdown-row td {
+            border-top: none;
+            border-bottom: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+
     </style>';
 
     if ($batches) {
@@ -1338,7 +1335,7 @@ echo '
   </div>
 </div>';
 
-echo '
+echo ' 
 <script> 
 document.addEventListener("DOMContentLoaded", function () {
     const modal = document.getElementById("batchModal");
@@ -1351,32 +1348,27 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.querySelectorAll(".wp-list-table tbody tr").forEach(row => {
         row.addEventListener("click", function () {
-    const batchNo = this.children[1].textContent.trim();
-    const instructor = this.children[2].textContent.trim();
-    const course = this.children[3].textContent.trim();
-    const startDate = this.children[4].textContent.trim();
-    const endDate = this.children[5].textContent.trim();
-    const startTime = this.children[6].textContent.trim();
-    const endTime = this.children[7].textContent.trim();
+            const batchNo = this.children[1].textContent.trim();
+            const instructor = this.children[2].textContent.trim();
+            const course = this.children[3].textContent.trim();
+            const startDate = this.children[4].textContent.trim();
+            const endDate = this.children[5].textContent.trim();
+            const startTime = this.children[6].textContent.trim();
+            const endTime = this.children[7].textContent.trim();
 
-    currentBatchNo = batchNo;
+            currentBatchNo = batchNo;
 
-    // Set modal title
-    document.getElementById("batchTitle").textContent = "Batch No: " + batchNo;
+            document.getElementById("batchTitle").textContent = "Batch No: " + batchNo;
+            document.getElementById("detailCourse").textContent = course;
+            document.getElementById("detailInstructor").textContent = instructor;
+            document.getElementById("detailDateRange").textContent = `${startDate} → ${endDate}`;
+            document.getElementById("detailTimeRange").textContent = `${startTime} - ${endTime}`;
 
-    // Set batch detail content
-    document.getElementById("detailCourse").textContent = course;
-    document.getElementById("detailInstructor").textContent = instructor;
-    document.getElementById("detailDateRange").textContent = `${startDate} → ${endDate}`;
-    document.getElementById("detailTimeRange").textContent = `${startTime} - ${endTime}`;
+            enrolledBtn.href = "admin.php?page=view-enrolled-students&batch_no=" + encodeURIComponent(batchNo);
+            applicantsList.innerHTML = "";
 
-
-    enrolledBtn.href = "admin.php?page=view-enrolled-students&batch_no=" + encodeURIComponent(batchNo);
-    applicantsList.innerHTML = "";
-
-    modal.style.display = "block";
-});
-
+            modal.style.display = "block";
+        });
     });
 
     applicantsBtn.onclick = function () {
@@ -1390,6 +1382,106 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(res => res.text())
         .then(html => {
             applicantsList.innerHTML = html;
+
+            const tableBody = applicantsList.querySelector("tbody");
+
+            if (!tableBody) return;
+
+            let activeRow = null;
+
+            tableBody.querySelectorAll("tr").forEach(row => {
+                row.addEventListener("click", function () {
+                    if (row.classList.contains("editing")) return;
+                    const next = row.nextElementSibling;
+
+                    // If dropdown is already shown for this row, remove it (toggle)
+                    if (next && next.classList.contains("dropdown-row")) {
+                        next.remove();
+                        activeRow = null;
+                        return;
+                    }
+
+                    // Remove existing dropdown
+                    const existing = tableBody.querySelector(".dropdown-row");
+                    if (existing) existing.remove();
+
+                    // Set current row as active
+                    activeRow = row;
+
+                    const dataId = row.querySelector(".enroll-btn")?.dataset.id || row.querySelector(".edit-btn")?.dataset.id;
+
+                    const dropdown = document.createElement("tr");
+                    dropdown.classList.add("dropdown-row");
+
+                    const td = document.createElement("td");
+                    td.colSpan = row.children.length;
+                    td.style.padding = "15px";
+                    td.style.backgroundColor = "#f9f9f9";
+                    td.innerHTML = `
+                        <div style="display: flex; gap: 10px;">
+                            <button class="button button-primary enroll-btn" data-id="${dataId}">Enroll</button>
+                            <button class="edit-btn button" data-id="${dataId}" style="border:none;">
+                                <span class="dashicons dashicons-edit"></span> Edit
+                            </button>
+                            <button class="delete-btn button" data-id="${dataId}" style="border:none; color:red;">
+                                <span class="dashicons dashicons-trash"></span> Delete
+                            </button>
+                        </div>
+                    `;
+                    dropdown.appendChild(td);
+                    row.insertAdjacentElement("afterend", dropdown);
+                                // ✅ Insert the setTimeout() HERE:
+            setTimeout(() => {
+                // Attach edit button logic here
+                document.querySelectorAll(".edit-btn").forEach(btn => {
+                    btn.addEventListener("click", function (e) {
+                        e.stopPropagation();
+                        const row = this.closest("tr").previousElementSibling;
+
+                        if (!row) return;
+                        if (row.classList.contains("editing")) return;
+
+                        row.classList.add("editing");
+                        const cells = row.querySelectorAll("td");
+
+                        cells.forEach(cell => {
+                            const oldValue = cell.textContent.trim();
+                            cell.setAttribute("data-old", oldValue);
+                            cell.innerHTML = `<input type="text" value="${oldValue}" style="width:100%; padding:4px;">`;
+                        });
+
+                        const dropdownRow = row.nextElementSibling;
+                        if (dropdownRow && dropdownRow.classList.contains("dropdown-row")) {
+                            const buttonContainer = dropdownRow.querySelector("td > div");
+                            buttonContainer.innerHTML = `
+                                <button class="button button-primary save-edit-btn">Save</button>
+                                <button class="button cancel-edit-btn">Cancel</button>
+                            `;
+
+                            buttonContainer.querySelector(".save-edit-btn").addEventListener("click", () => {
+                                cells.forEach(cell => {
+                                    const input = cell.querySelector("input");
+                                    if (input) {
+                                        cell.textContent = input.value.trim();
+                                    }
+                                });
+                                row.classList.remove("editing");
+                                dropdownRow.remove();
+                            });
+
+                            buttonContainer.querySelector(".cancel-edit-btn").addEventListener("click", () => {
+                                cells.forEach(cell => {
+                                    cell.textContent = cell.getAttribute("data-old");
+                                });
+                                row.classList.remove("editing");
+                                dropdownRow.remove();
+                            });
+                        }
+                    });
+                });
+            }, 100);
+                });
+            });
         })
         .catch(err => {
             applicantsList.innerHTML = "<p style=\'color:red;\'>Failed to load applicants.</p>";
@@ -1409,6 +1501,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 });
 </script>';
+
 
 
     echo '</div>';
