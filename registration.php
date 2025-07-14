@@ -1,5 +1,6 @@
 <?php
 
+
 // Create DB table on activation
 register_activation_hook(__FILE__, 'student_registration_create_table');
 function student_registration_create_table() {
@@ -1080,34 +1081,47 @@ function get_applicants_by_batch_callback() {
         ARRAY_A
     );
 
-    if (empty($applicants)) {
-        echo "<p>No applicants found for course: <strong>" . esc_html($course_name) . "</strong></p>";
-    } else {
-        echo "<div style='max-height:300px; overflow:auto;'>
-            <table style='width:100%; border-collapse:collapse;'>
-                <thead>
-                    <tr>
-                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Student Name</th>
-                        <th style='border-bottom:1px solid #ccc; padding:8px;'>DOB</th>
-                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Gender</th>
-                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Email</th>
-                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Phone Number</th>
-                    </tr>
-                </thead>
-                <tbody>";
+if (empty($applicants)) {
+    echo "<p>No applicants found for course: <strong>" . esc_html($course_name) . "</strong></p>";
+} else {
+    echo "<div style='max-height:500px; overflow:auto;'>
+        <table style='width:100%; border-collapse:collapse;'>
+            <thead>
+                <tr>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Student Name</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>DOB</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Gender</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Email</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Phone Number</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px; text-align:center;'>Actions</th>
+                </tr>
+            </thead>
+            <tbody>";
 
-        foreach ($applicants as $applicant) {
-            echo "<tr>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['full_name']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['dob']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['gender']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['student_email']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['parent_phone']) . "</td>
-            </tr>";
-        }
-
-        echo "</tbody></table></div>";
+    foreach ($applicants as $index => $applicant) {
+        echo "<tr>
+            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['full_name']) . "</td>
+            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['dob']) . "</td>
+            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['gender']) . "</td>
+            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['student_email']) . "</td>
+            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['parent_phone']) . "</td>
+            <td style='padding:8px; border-bottom:1px solid #eee; text-align:center;'>
+                <div style='display: flex; justify-content: center; gap: 8px;'>
+                    <button class='button button-primary enroll-btn' data-id='{$index}'>Enroll</button>
+                    <button class='button edit-btn' data-id='{$index}' style='border:none;'>
+                        <span class='dashicons dashicons-edit'></span>
+                    </button>
+                    <button class='button delete-btn' data-id='{$index}' style='border:none; color:red;'>
+                        <span class='dashicons dashicons-trash'></span>
+                    </button>
+                </div>
+            </td>
+        </tr>";
     }
+
+    echo "</tbody></table></div>";
+}
+
 
     wp_die();
 }
@@ -1301,7 +1315,7 @@ if ($course_fee !== null) {
     }
 echo '
 <div id="batchModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.4); z-index:9999;">
-  <div style="background:#fff; max-width:500px; margin:5% auto; padding:20px; border-radius:10px; text-align:center; position:relative;">
+  <div style="background:#fff; max-width:800px; margin:5% auto; padding:20px; border-radius:10px; text-align:center; position:relative;">
     <span id="closeModal" style="position:absolute; top:10px; right:15px; font-size:20px; cursor:pointer;">&times;</span>
     <h2 id="batchTitle">Batch Details</h2>
     <div id="batchDetails" style="margin-top:15px; font-size:14px; text-align:left;">
@@ -1333,7 +1347,27 @@ echo '
       <div id="applicantsList" style="margin-top:20px; text-align:left;"></div>
     </div>
   </div>
-</div>';
+</div>
+<div id="studentRegisterModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
+  <div style="background:#fff; width:500px; margin:5% auto; padding:20px; border-radius:8px; position:relative;">
+    <span id="closeStudentModal" style="position:absolute; top:10px; right:15px; font-size:20px; cursor:pointer;">&times;</span>
+    <h2 style="margin-top:0;">Student Registration</h2>
+    <form id="studentRegisterForm">
+        <input type="hidden" name="action" value="save_student_modal">
+        <div class="form-row"><label>Full Name</label><input type="text" name="student_name" required></div>
+        <div class="form-row"><label>Date of Birth</label><input type="date" name="dob" required></div>
+        <div class="form-row">
+            <label>Gender</label>
+            <label><input type="radio" name="gender" value="Male"> Male</label>
+            <label><input type="radio" name="gender" value="Female"> Female</label>
+        </div>
+        <div class="form-row"><label>Email</label><input type="email" name="email" required></div>
+        <div class="form-row"><label>Phone</label><input type="text" name="phone" required></div>
+        <button type="submit" class="button button-primary">Save</button>
+    </form>
+  </div>
+</div>
+';
 
 echo ' 
 <script> 
@@ -1344,7 +1378,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const applicantsBtn = document.getElementById("viewApplicantsBtn");
     const applicantsList = document.getElementById("applicantsList");
 
-    let currentBatchNo = "";
+    
 
     document.querySelectorAll(".wp-list-table tbody tr").forEach(row => {
         row.addEventListener("click", function () {
@@ -1387,101 +1421,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
             if (!tableBody) return;
 
-            let activeRow = null;
 
-            tableBody.querySelectorAll("tr").forEach(row => {
-                row.addEventListener("click", function () {
-                    if (row.classList.contains("editing")) return;
-                    const next = row.nextElementSibling;
-
-                    // If dropdown is already shown for this row, remove it (toggle)
-                    if (next && next.classList.contains("dropdown-row")) {
-                        next.remove();
-                        activeRow = null;
-                        return;
-                    }
-
-                    // Remove existing dropdown
-                    const existing = tableBody.querySelector(".dropdown-row");
-                    if (existing) existing.remove();
-
-                    // Set current row as active
-                    activeRow = row;
-
-                    const dataId = row.querySelector(".enroll-btn")?.dataset.id || row.querySelector(".edit-btn")?.dataset.id;
-
-                    const dropdown = document.createElement("tr");
-                    dropdown.classList.add("dropdown-row");
-
-                    const td = document.createElement("td");
-                    td.colSpan = row.children.length;
-                    td.style.padding = "15px";
-                    td.style.backgroundColor = "#f9f9f9";
-                    td.innerHTML = `
-                        <div style="display: flex; gap: 10px;">
-                            <button class="button button-primary enroll-btn" data-id="${dataId}">Enroll</button>
-                            <button class="edit-btn button" data-id="${dataId}" style="border:none;">
-                                <span class="dashicons dashicons-edit"></span> Edit
-                            </button>
-                            <button class="delete-btn button" data-id="${dataId}" style="border:none; color:red;">
-                                <span class="dashicons dashicons-trash"></span> Delete
-                            </button>
-                        </div>
-                    `;
-                    dropdown.appendChild(td);
-                    row.insertAdjacentElement("afterend", dropdown);
-                                // ✅ Insert the setTimeout() HERE:
-            setTimeout(() => {
-                // Attach edit button logic here
-                document.querySelectorAll(".edit-btn").forEach(btn => {
-                    btn.addEventListener("click", function (e) {
-                        e.stopPropagation();
-                        const row = this.closest("tr").previousElementSibling;
-
-                        if (!row) return;
-                        if (row.classList.contains("editing")) return;
-
-                        row.classList.add("editing");
-                        const cells = row.querySelectorAll("td");
-
-                        cells.forEach(cell => {
-                            const oldValue = cell.textContent.trim();
-                            cell.setAttribute("data-old", oldValue);
-                            cell.innerHTML = `<input type="text" value="${oldValue}" style="width:100%; padding:4px;">`;
-                        });
-
-                        const dropdownRow = row.nextElementSibling;
-                        if (dropdownRow && dropdownRow.classList.contains("dropdown-row")) {
-                            const buttonContainer = dropdownRow.querySelector("td > div");
-                            buttonContainer.innerHTML = `
-                                <button class="button button-primary save-edit-btn">Save</button>
-                                <button class="button cancel-edit-btn">Cancel</button>
-                            `;
-
-                            buttonContainer.querySelector(".save-edit-btn").addEventListener("click", () => {
-                                cells.forEach(cell => {
-                                    const input = cell.querySelector("input");
-                                    if (input) {
-                                        cell.textContent = input.value.trim();
-                                    }
-                                });
-                                row.classList.remove("editing");
-                                dropdownRow.remove();
-                            });
-
-                            buttonContainer.querySelector(".cancel-edit-btn").addEventListener("click", () => {
-                                cells.forEach(cell => {
-                                    cell.textContent = cell.getAttribute("data-old");
-                                });
-                                row.classList.remove("editing");
-                                dropdownRow.remove();
-                            });
-                        }
-                    });
-                });
-            }, 100);
-                });
-            });
         })
         .catch(err => {
             applicantsList.innerHTML = "<p style=\'color:red;\'>Failed to load applicants.</p>";
@@ -1500,12 +1440,244 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 });
+let registeredEmails = [];
+let currentBatchNo = "";
+document.addEventListener("click", function(e) {
+    if (e.target.classList.contains("enroll-btn")) {
+        const row = e.target.closest("tr");
+        const email = row.children[3].textContent.trim();
+        const phone = row.children[4].textContent.trim();
+        const name = row.children[0].textContent.trim();
+        const dob = row.children[1].textContent.trim();
+        const gender = row.children[2].textContent.trim();
+
+        if (registeredEmails.includes(email)) {
+            alert("✅ Student already registered. Proceeding to enroll...");
+            enrollStudent(email, currentBatchNo);
+        } else {
+            // Open Modal and Autofill
+            const modal = document.getElementById("studentRegisterModal");
+            const form = document.getElementById("studentRegisterForm");
+
+            form.student_name.value = name;
+            form.dob.value = dob;
+            form.gender.forEach(r => r.checked = (r.value === gender));
+            form.email.value = email;
+            form.phone.value = phone;
+
+            modal.style.display = "block";
+        }
+    }
+});
+
+document.getElementById("closeStudentModal").onclick = () => {
+    document.getElementById("studentRegisterModal").style.display = "none";
+};
+
+document.getElementById("studentRegisterForm").addEventListener("submit", function(e) {  
+    e.preventDefault();
+    const formData = new FormData(this);
+    const email = formData.get("email"); // Moved here
+    const modal = document.getElementById("studentRegisterModal");
+
+    fetch(ajaxurl, {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            modal.style.display = "none";
+
+            if (res.data.status === "exists") {
+                alert("⚠️ Student already registered!\nID: " + res.data.student_id);
+            } else {
+                alert("🎉 Student registered successfully!\nID: " + res.data.student_id);
+                registeredEmails.push(email); // prevent repeat
+            }
+
+            // ✅ Always enroll (even if already registered)
+            enrollStudent(email, currentBatchNo)
+            .then(() => {
+                alert("✅ Student enrolled successfully!");
+            })
+            .catch(error => {
+                alert("❌ Enrollment failed: " + error);
+            });
+
+        } else {
+            alert("❌ Failed to register student.\n" + res.data);
+        }
+    })
+
+    .catch((errorMessage) => {
+        alert("⚠️ Enrollment failed: " + errorMessage);
+    });
+});
+function enrollStudent(email, batchNo) {
+    return new Promise((resolve, reject) => {
+        fetch(ajaxurl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                action: "enroll_student_in_course",
+                email: email,
+                batch_no: batchNo
+            })
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                resolve(true);
+            } else {
+                reject(res.data || "Unknown error");
+            }
+        })
+        .catch(() => {
+            reject("Server error. Please try again.");
+        });
+    });
+}
+
+
 </script>';
 
 
 
     echo '</div>';
 }
+add_action('wp_ajax_save_student_modal', 'save_student_modal_handler');
+function save_student_modal_handler() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'student_registrations';
+
+    $student_name = sanitize_text_field($_POST['student_name']);
+    $dob = sanitize_text_field($_POST['dob']);
+    $gender = sanitize_text_field($_POST['gender']);
+    $email = sanitize_email($_POST['email']);
+    $phone = sanitize_text_field($_POST['phone']);
+
+    // Check if student already exists by email or phone
+    $existing_student = $wpdb->get_row($wpdb->prepare(
+        "SELECT student_id FROM $table_name WHERE email = %s OR phone = %s LIMIT 1",
+        $email, $phone
+    ), ARRAY_A);
+
+    if ($existing_student) {
+        wp_send_json_success([
+            'message' => "Student already registered",
+            'student_id' => $existing_student['student_id'],
+            'status' => 'exists'
+        ]);
+    }
+
+    //  Generate unique student ID
+    $student_id = generate_unique_student_id($wpdb, $table_name);
+
+    //  Insert new student with timestamp
+    $inserted = $wpdb->insert($table_name, [
+        'student_id'   => $student_id,
+        'student_name' => $student_name,
+        'dob'          => $dob,
+        'gender'       => $gender,
+        'email'        => $email,
+        'phone'        => $phone,
+        'created_at'   => current_time('mysql')
+    ]);
+
+    if ($inserted !== false) {
+        wp_send_json_success([
+            'message' => "Student registered successfully",
+            'student_id' => $student_id,
+            'status' => 'new'
+        ]);
+    } else {
+        wp_send_json_error("Insert failed: " . $wpdb->last_error);
+    }
+}
+register_activation_hook(__FILE__, 'create_students_course_enrollment_table');
+function create_students_course_enrollment_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'students_course_enrollment';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        student_id VARCHAR(12) NOT NULL,
+        course_name VARCHAR(255) NOT NULL,
+        batch_no VARCHAR(50) DEFAULT NULL,
+        enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY student_course (student_id, course_name)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+
+register_deactivation_hook(__FILE__, 'delete_students_course_enrollment_table');
+function delete_students_course_enrollment_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'students_course_enrollment';
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
+}
+
+add_action('wp_ajax_enroll_student_in_course', 'enroll_student_in_course_handler');
+function enroll_student_in_course_handler() {
+    global $wpdb;
+
+    $email = sanitize_email($_POST['email']);
+    $batch_no = sanitize_text_field($_POST['batch_no']);
+
+    // Get student_id from email
+    $student = $wpdb->get_row($wpdb->prepare(
+        "SELECT student_id FROM {$wpdb->prefix}student_registrations WHERE email = %s",
+        $email
+    ));
+
+    if (!$student) {
+        wp_send_json_error("Student not found");
+    }
+
+    $student_id = $student->student_id;
+
+    // Get course_name using batch_no
+    $course_name = $wpdb->get_var($wpdb->prepare(
+        "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s LIMIT 1",
+        $batch_no
+    ));
+
+    if (!$course_name) {
+        wp_send_json_error("Course not found for the batch");
+    }
+
+    $enroll_table = $wpdb->prefix . 'students_course_enrollment';
+
+    // Check if already enrolled
+    $exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $enroll_table WHERE student_id = %s AND course_name = %s",
+        $student_id, $course_name
+    ));
+
+    if ($exists) {
+        wp_send_json_error("Student already enrolled");
+    }
+
+    // Insert enrollment record
+    $result = $wpdb->insert($enroll_table, [
+        'student_id'   => $student_id,
+        'course_name'  => $course_name,
+        'batch_no'     => $batch_no,
+        'enrolled_at'  => current_time('mysql')
+    ]);
+
+    if ($result === false) {
+        wp_send_json_error("Insert failed: " . $wpdb->last_error);
+    }
+
+    wp_send_json_success("Enrolled");
+}
+
 register_activation_hook(__FILE__, 'create_custom_batch_table');
 register_deactivation_hook(__FILE__, 'drop_custom_batch_table');
 
