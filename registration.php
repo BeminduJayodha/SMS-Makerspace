@@ -1075,7 +1075,7 @@ function get_applicants_by_batch_callback() {
         $wpdb->prepare(
             "SELECT full_name, dob, gender, student_email, parent_phone 
              FROM $table_name 
-             WHERE course_name = %s",
+             WHERE course_name = %s AND is_enrolled = 0",
             $course_name
         ),
         ARRAY_A
@@ -1107,7 +1107,7 @@ if (empty($applicants)) {
             <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['parent_phone']) . "</td>
             <td style='padding:8px; border-bottom:1px solid #eee; text-align:center;'>
                 <div style='display: flex; justify-content: center; gap: 8px;'>
-                    <button class='button button-primary enroll-btn' data-id='{$index}'>Enroll</button>
+                    <button class='button button-primary enroll-btn' data-id='{$index}' data-email='" . esc_attr($applicant['student_email']) . "'>Enroll</button>
                     <button class='button edit-btn' data-id='{$index}' style='border:none;'>
                         <span class='dashicons dashicons-edit'></span>
                     </button>
@@ -1342,9 +1342,19 @@ echo '
 </div>
 
     <div id="modalContent" style="margin-top:20px;">
-      <a href="#" id="viewEnrolledBtn" class="button button-primary" style="margin-right:10px;">Enrolled Students</a>
-      <button id="viewApplicantsBtn" class="button">View Applicants</button>
+          
+    <button id="viewApplicantsBtn" class="button">View Applicants</button>
+    <a href="#" id="viewRegisteredBtn" class="button button-primary">View Registered Students</a>
+          <p id="enrolledCount" style="font-weight: bold; margin: 10px 0;">
+  👨‍🎓 Enrolled Students: 
+  <span id="enrolledCountNumber" style="color:green;">0</span> 
+  <span style="color:#888;">/ 16</span>
+</p>
+  </div>
+      <div id="enrolledList" style="display:none; margin-top: 15px; text-align:left;"></div>
+      <div id="registeredList" style="display:none; margin-top:20px; text-align:left;"></div>
       <div id="applicantsList" style="margin-top:20px; text-align:left;"></div>
+
     </div>
   </div>
 </div>
@@ -1377,6 +1387,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const enrolledBtn = document.getElementById("viewEnrolledBtn");
     const applicantsBtn = document.getElementById("viewApplicantsBtn");
     const applicantsList = document.getElementById("applicantsList");
+    
 
     
 
@@ -1391,22 +1402,64 @@ document.addEventListener("DOMContentLoaded", function () {
             const endTime = this.children[7].textContent.trim();
 
             currentBatchNo = batchNo;
-
+            updateEnrolledCount(currentBatchNo);
             document.getElementById("batchTitle").textContent = "Batch No: " + batchNo;
             document.getElementById("detailCourse").textContent = course;
             document.getElementById("detailInstructor").textContent = instructor;
             document.getElementById("detailDateRange").textContent = `${startDate} → ${endDate}`;
             document.getElementById("detailTimeRange").textContent = `${startTime} - ${endTime}`;
 
-            enrolledBtn.href = "admin.php?page=view-enrolled-students&batch_no=" + encodeURIComponent(batchNo);
-            applicantsList.innerHTML = "";
 
-            modal.style.display = "block";
-        });
-    });
 
-    applicantsBtn.onclick = function () {
+
+           const enrolledList = document.getElementById("enrolledList");
+           const registeredList = document.getElementById("registeredList");
+           
+           // Hide other sections
+           applicantsList.style.display = "none";
+           registeredList.style.display = "none";
+           enrolledList.innerHTML = "<p>Loading enrolled students...</p>";
+           enrolledList.style.display = "block";
+           
+           // Fetch enrolled students automatically when modal opens
+           fetch(ajaxurl, {
+               method: "POST",
+               headers: { "Content-Type": "application/x-www-form-urlencoded" },
+               body: "action=get_enrolled_students_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
+           })
+           .then(res => res.text())
+           .then(html => {
+               enrolledList.innerHTML = html;
+           })
+           .catch(() => {
+               enrolledList.innerHTML = "<p style=\'color:red;\'>Failed to load enrolled students.</p>";
+           });
+           
+           // Show modal
+           modal.style.display = "block";
+           
+                   });
+               });
+           
+let isApplicantsVisible = false;
+
+applicantsBtn.onclick = function () {
+    const enrolledList = document.getElementById("enrolledList");
+    const registeredList = document.getElementById("registeredList");
+
+    if (isApplicantsVisible) {
+        // Hide applicants and show enrolled
+        applicantsList.style.display = "none";
+        enrolledList.style.display = "block";
+        isApplicantsVisible = false;
+    } else {
+        // Show applicants, hide others
+        enrolledList.style.display = "none";
+        registeredList.style.display = "none";
+
         applicantsList.innerHTML = "<p>Loading applicants...</p>";
+        applicantsList.style.display = "block";
+        isApplicantsVisible = true;
 
         fetch(ajaxurl, {
             method: "POST",
@@ -1416,128 +1469,232 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(res => res.text())
         .then(html => {
             applicantsList.innerHTML = html;
-
-            const tableBody = applicantsList.querySelector("tbody");
-
-            if (!tableBody) return;
-
-
         })
-        .catch(err => {
+        .catch(() => {
             applicantsList.innerHTML = "<p style=\'color:red;\'>Failed to load applicants.</p>";
         });
-
-        return false;
-    };
-
-    closeModal.addEventListener("click", function () {
-        modal.style.display = "none";
-    });
-
-    window.addEventListener("click", function (event) {
-        if (event.target === modal) {
-            modal.style.display = "none";
-        }
-    });
-});
-let registeredEmails = [];
-let currentBatchNo = "";
-document.addEventListener("click", function(e) {
-    if (e.target.classList.contains("enroll-btn")) {
-        const row = e.target.closest("tr");
-        const email = row.children[3].textContent.trim();
-        const phone = row.children[4].textContent.trim();
-        const name = row.children[0].textContent.trim();
-        const dob = row.children[1].textContent.trim();
-        const gender = row.children[2].textContent.trim();
-
-        if (registeredEmails.includes(email)) {
-            alert("✅ Student already registered. Proceeding to enroll...");
-            enrollStudent(email, currentBatchNo);
-        } else {
-            // Open Modal and Autofill
-            const modal = document.getElementById("studentRegisterModal");
-            const form = document.getElementById("studentRegisterForm");
-
-            form.student_name.value = name;
-            form.dob.value = dob;
-            form.gender.forEach(r => r.checked = (r.value === gender));
-            form.email.value = email;
-            form.phone.value = phone;
-
-            modal.style.display = "block";
-        }
     }
-});
 
-document.getElementById("closeStudentModal").onclick = () => {
-    document.getElementById("studentRegisterModal").style.display = "none";
+    return false;
 };
 
-document.getElementById("studentRegisterForm").addEventListener("submit", function(e) {  
-    e.preventDefault();
-    const formData = new FormData(this);
-    const email = formData.get("email"); // Moved here
-    const modal = document.getElementById("studentRegisterModal");
-
-    fetch(ajaxurl, {
-        method: "POST",
-        body: formData
-    })
-    .then(res => res.json())
-    .then(res => {
-        if (res.success) {
-            modal.style.display = "none";
-
-            if (res.data.status === "exists") {
-                alert("⚠️ Student already registered!\nID: " + res.data.student_id);
-            } else {
-                alert("🎉 Student registered successfully!\nID: " + res.data.student_id);
-                registeredEmails.push(email); // prevent repeat
-            }
-
-            // ✅ Always enroll (even if already registered)
-            enrollStudent(email, currentBatchNo)
-            .then(() => {
-                alert("✅ Student enrolled successfully!");
-            })
-            .catch(error => {
-                alert("❌ Enrollment failed: " + error);
-            });
-
-        } else {
-            alert("❌ Failed to register student.\n" + res.data);
-        }
-    })
-
-    .catch((errorMessage) => {
-        alert("⚠️ Enrollment failed: " + errorMessage);
-    });
-});
+         
+         
+             closeModal.addEventListener("click", function () {
+                 modal.style.display = "none";
+             });
+         
+             window.addEventListener("click", function (event) {
+                 if (event.target === modal) {
+                     modal.style.display = "none";
+                 }
+             });
+         });
+         let registeredEmails = [];
+         let currentBatchNo = "";
+         document.addEventListener("click", function(e) {
+             if (e.target.classList.contains("enroll-btn")) {
+                 const row = e.target.closest("tr");
+                 const email = row.children[3].textContent.trim();
+                 const phone = row.children[4].textContent.trim();
+                 const name = row.children[0].textContent.trim();
+                 const dob = row.children[1].textContent.trim();
+                 const gender = row.children[2].textContent.trim();
+         
+                 if (registeredEmails.includes(email)) {
+                     alert("✅ Student already registered. Proceeding to enroll...");
+                     enrollStudent(email, currentBatchNo);
+                 } else {
+                     // Open Modal and Autofill
+                     const modal = document.getElementById("studentRegisterModal");
+                     const form = document.getElementById("studentRegisterForm");
+         
+                     form.student_name.value = name;
+                     form.dob.value = dob;
+                     form.gender.forEach(r => r.checked = (r.value === gender));
+                     form.email.value = email;
+                     form.phone.value = phone;
+         
+                     modal.style.display = "block";
+                 }
+             }
+         });
+         
+         document.getElementById("closeStudentModal").onclick = () => {
+             document.getElementById("studentRegisterModal").style.display = "none";
+         };
+         
+         document.getElementById("studentRegisterForm").addEventListener("submit", function(e) {  
+             e.preventDefault();
+             const formData = new FormData(this);
+             const email = formData.get("email"); // Moved here
+             const modal = document.getElementById("studentRegisterModal");
+         
+             fetch(ajaxurl, {
+                 method: "POST",
+                 body: formData
+             })
+             .then(res => res.json())
+             .then(res => {
+                 if (res.success) {
+                     modal.style.display = "none";
+         
+                     if (res.data.status === "exists") {
+                         alert("⚠️ Student already registered!\nID: " + res.data.student_id);
+                     } else {
+                         alert("🎉 Student registered successfully!\nID: " + res.data.student_id);
+                         registeredEmails.push(email); // prevent repeat
+                     }
+         
+                     // ✅ Always enroll (even if already registered)
+                     enrollStudent(email, currentBatchNo)
+                     .then(() => {
+                         alert("✅ Student enrolled successfully!");
+                         updateEnrolledCount(currentBatchNo);
+             // 🔍 Find the row by matching the email in 4th column (index 3)
+             const rows = document.querySelectorAll("#applicantsList tbody tr");
+             rows.forEach(row => {
+                 const rowEmail = row.children[3].textContent.trim();
+                 if (rowEmail === email) {
+                     row.remove(); // 🗑️ Remove row from applicants list
+                 }
+             });
+         })
+                     .catch(error => {
+                         alert("❌ Enrollment failed: " + error);
+                     });
+         
+                 } else {
+                     alert("❌ Failed to register student.\n" + res.data);
+                 }
+             })
+         
+             .catch((errorMessage) => {
+                 alert("⚠️ Enrollment failed: " + errorMessage);
+             });
+         });
 function enrollStudent(email, batchNo) {
     return new Promise((resolve, reject) => {
+        // First, get current enrolled count
         fetch(ajaxurl, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({
-                action: "enroll_student_in_course",
-                email: email,
+                action: "get_enrolled_student_count",
                 batch_no: batchNo
             })
         })
         .then(res => res.json())
         .then(res => {
-            if (res.success) {
-                resolve(true);
-            } else {
-                reject(res.data || "Unknown error");
+            if (!res.success) {
+                return reject("Failed to check enrollment count");
             }
+
+            const enrolledCount = res.data.count;
+
+            if (enrolledCount >= 16) {
+                alert("This batch is full. No more students can be enrolled.");
+                return reject("Batch full");
+            }
+
+            //Continue to enroll
+            fetch(ajaxurl, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({
+                    action: "enroll_student_in_course",
+                    email: email,
+                    batch_no: batchNo
+                })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.success) {
+                    resolve(true);
+                } else {
+                    reject(res.data || "Unknown error");
+                }
+            })
+            .catch(() => {
+                reject("Server error. Please try again.");
+            });
+
         })
         .catch(() => {
-            reject("Server error. Please try again.");
+            reject("Error checking batch capacity");
         });
     });
 }
+
+function updateEnrolledCount(batchNo) {
+    fetch(ajaxurl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            action: "get_enrolled_student_count",
+            batch_no: batchNo
+        })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            const enrolled = res.data.count;
+            document.getElementById("enrolledCountNumber").textContent = enrolled;
+
+            // Optional: Change color if full
+            if (enrolled >= 16) {
+                document.getElementById("enrolledCountNumber").style.color = "red";
+            } else {
+                document.getElementById("enrolledCountNumber").style.color = "green";
+            }
+        } else {
+            document.getElementById("enrolledCountNumber").textContent = "0";
+        }
+    })
+    .catch(() => {
+        document.getElementById("enrolledCountNumber").textContent = "0";
+    });
+}
+
+const registeredBtn = document.getElementById("viewRegisteredBtn");
+const registeredList = document.getElementById("registeredList");
+
+let isRegisteredVisible = false;
+
+registeredBtn.onclick = function () {
+    const enrolledList = document.getElementById("enrolledList");
+    const applicantsList = document.getElementById("applicantsList");
+
+    if (isRegisteredVisible) {
+        // Hide registered, show enrolled
+        registeredList.style.display = "none";
+        enrolledList.style.display = "block";
+        isRegisteredVisible = false;
+    } else {
+        // Show registered, hide others
+        enrolledList.style.display = "none";
+        applicantsList.style.display = "none";
+
+        registeredList.innerHTML = "<p>Loading registered students...</p>";
+        registeredList.style.display = "block";
+        isRegisteredVisible = true;
+
+        fetch(ajaxurl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "action=get_registered_students_not_enrolled&batch_no=" + encodeURIComponent(currentBatchNo)
+        })
+        .then(res => res.text())
+        .then(html => {
+            registeredList.innerHTML = html;
+        })
+        .catch(() => {
+            registeredList.innerHTML = "<p style=\'color:red;\'>Failed to load registered students.</p>";
+        });
+    }
+
+    return false;
+};
 
 
 </script>';
@@ -1595,6 +1752,9 @@ function save_student_modal_handler() {
         wp_send_json_error("Insert failed: " . $wpdb->last_error);
     }
 }
+
+
+
 register_activation_hook(__FILE__, 'create_students_course_enrollment_table');
 function create_students_course_enrollment_table() {
     global $wpdb;
@@ -1621,6 +1781,7 @@ function delete_students_course_enrollment_table() {
     $table_name = $wpdb->prefix . 'students_course_enrollment';
     $wpdb->query("DROP TABLE IF EXISTS $table_name");
 }
+
 
 add_action('wp_ajax_enroll_student_in_course', 'enroll_student_in_course_handler');
 function enroll_student_in_course_handler() {
@@ -1675,8 +1836,153 @@ function enroll_student_in_course_handler() {
         wp_send_json_error("Insert failed: " . $wpdb->last_error);
     }
 
+    // Mark as enrolled in wp_student_enrollments table
+    $student_enrollments_table = $wpdb->prefix . 'student_enrollments';
+    $wpdb->update(
+        $student_enrollments_table,
+        ['is_enrolled' => 1],
+        ['student_email' => $email]
+    );
+
     wp_send_json_success("Enrolled");
 }
+
+
+
+add_action('wp_ajax_get_enrolled_students_by_batch', 'get_enrolled_students_by_batch_callback');
+function get_enrolled_students_by_batch_callback() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized', 403);
+    }
+
+    global $wpdb;
+    $batch_no = sanitize_text_field($_POST['batch_no']);
+
+    $enrollments_table = $wpdb->prefix . 'students_course_enrollment';
+    $students_table = $wpdb->prefix . 'student_registrations';
+
+    // Join to get full student details
+$students = $wpdb->get_results(
+    $wpdb->prepare(
+        "SELECT r.student_name, r.dob, r.gender, r.email, r.phone, r.student_id
+         FROM $enrollments_table e
+         INNER JOIN $students_table r 
+         ON BINARY e.student_id = BINARY r.student_id
+         WHERE e.batch_no = %s",
+        $batch_no
+    ),
+    ARRAY_A
+);
+
+
+    if (empty($students)) {
+        echo "<p>No students enrolled in this batch.</p>";
+        wp_die();
+    }
+
+    echo "<div style='max-height:500px; overflow:auto;'>
+        <table style='width:100%; border-collapse:collapse;'>
+            <thead>
+                <tr>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Student ID</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Student Name</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>DOB</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Gender</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Email</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Phone</th>
+                </tr>
+            </thead>
+            <tbody>";
+
+    foreach ($students as $student) {
+        echo "<tr>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['student_id']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['student_name']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['dob']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['gender']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['email']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['phone']) . "</td>
+              </tr>";
+    }
+
+    echo "</tbody></table></div>";
+
+    wp_die();
+}
+add_action('wp_ajax_get_enrolled_student_count', 'get_enrolled_student_count_callback');
+function get_enrolled_student_count_callback() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized', 403);
+    }
+
+    global $wpdb;
+    $batch_no = sanitize_text_field($_POST['batch_no']);
+
+    $table = $wpdb->prefix . 'students_course_enrollment';
+    $count = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $table WHERE batch_no = %s", $batch_no
+    ));
+
+    wp_send_json_success(['count' => intval($count)]);
+}
+
+add_action('wp_ajax_get_registered_students_not_enrolled', 'get_registered_students_not_enrolled_callback');
+function get_registered_students_not_enrolled_callback() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized', 403);
+    }
+
+    global $wpdb;
+    $batch_no = sanitize_text_field($_POST['batch_no']);
+    $reg_table = $wpdb->prefix . 'student_registrations';
+    $enroll_table = $wpdb->prefix . 'students_course_enrollment';
+
+    // Get students not enrolled in this batch
+    $results = $wpdb->get_results($wpdb->prepare("
+        SELECT r.student_id, r.student_name, r.dob, r.gender, r.email, r.phone
+        FROM $reg_table r
+        WHERE r.student_id NOT IN (
+            SELECT student_id FROM $enroll_table WHERE batch_no = %s
+        )
+    ", $batch_no));
+
+    if (empty($results)) {
+        echo "<p>No registered students found.</p>";
+        wp_die();
+    }
+
+    echo "<div style='margin-bottom: 12px; text-align: left;'>
+    <a href='" . admin_url('admin.php?page=student-registration') . "' class='button button-primary' target='_blank'>
+        + New Registration
+    </a>
+    </div>";
+
+    echo "<table style='width:100%; border-collapse: collapse;'>";
+
+    echo "<thead><tr>
+        <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Name</th>
+        <th style='padding: 8px; border-bottom: 1px solid #ccc;'>DOB</th>
+        <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Gender</th>
+        <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Email</th>
+        <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Phone</th>
+    </tr></thead><tbody>";
+
+    foreach ($results as $student) {
+        echo "<tr>
+            <td style='padding: 6px;'>{$student->student_name}</td>
+            <td style='padding: 6px;'>{$student->dob}</td>
+            <td style='padding: 6px;'>{$student->gender}</td>
+            <td style='padding: 6px;'>{$student->email}</td>
+            <td style='padding: 6px;'>{$student->phone}</td>
+        </tr>";
+    }
+
+    echo "</tbody></table>";
+    wp_die();
+}
+
+
+
 
 register_activation_hook(__FILE__, 'create_custom_batch_table');
 register_deactivation_hook(__FILE__, 'drop_custom_batch_table');
@@ -2235,6 +2541,9 @@ function handle_save_batch_data() {
     }
 }
 
+
+
+//registration form on frontend//
 
 
 
