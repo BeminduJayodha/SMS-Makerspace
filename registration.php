@@ -1,6 +1,5 @@
 <?php
 
-
 // Create DB table on activation
 register_activation_hook(__FILE__, 'student_registration_create_table');
 function student_registration_create_table() {
@@ -1098,26 +1097,49 @@ if (empty($applicants)) {
             </thead>
             <tbody>";
 
-    foreach ($applicants as $index => $applicant) {
-        echo "<tr>
-            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['full_name']) . "</td>
-            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['dob']) . "</td>
-            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['gender']) . "</td>
-            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['student_email']) . "</td>
-            <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($applicant['parent_phone']) . "</td>
-            <td style='padding:8px; border-bottom:1px solid #eee; text-align:center;'>
-                <div style='display: flex; justify-content: center; gap: 8px;'>
-                    <button class='button button-primary enroll-btn' data-id='{$index}' data-email='" . esc_attr($applicant['student_email']) . "'>Enroll</button>
-                    <button class='button edit-btn' data-id='{$index}' style='border:none;'>
-                        <span class='dashicons dashicons-edit'></span>
-                    </button>
-                    <button class='button delete-btn' data-id='{$index}' style='border:none; color:red;'>
-                        <span class='dashicons dashicons-trash'></span>
-                    </button>
-                </div>
-            </td>
-        </tr>";
-    }
+foreach ($applicants as $index => $applicant) {
+    echo "<tr data-email='" . esc_attr($applicant['student_email']) . "'>
+        <td>
+          <span class='view-field'>" . esc_html($applicant['full_name']) . "</span>
+          <input class='edit-field' type='text' value='" . esc_attr($applicant['full_name']) . "' style='display:none;' />
+        </td>
+        <td>
+          <span class='view-field'>" . esc_html($applicant['dob']) . "</span>
+          <input class='edit-field' type='date' value='" . esc_attr($applicant['dob']) . "' style='display:none;' />
+        </td>
+        <td>
+          <span class='view-field'>" . esc_html($applicant['gender']) . "</span>
+          <select class='edit-field' style='display:none;'>
+            <option value='Male'" . selected($applicant['gender'], 'Male', false) . ">Male</option>
+            <option value='Female'" . selected($applicant['gender'], 'Female', false) . ">Female</option>
+          </select>
+        </td>
+        <td><span class='view-field'>" . esc_html($applicant['student_email']) . "</span></td>
+        <td>
+          <span class='view-field'>" . esc_html($applicant['parent_phone']) . "</span>
+          <input class='edit-field' type='text' value='" . esc_attr($applicant['parent_phone']) . "' style='display:none;' />
+        </td>
+<td style='padding:8px; border-bottom:1px solid #eee; text-align:center;'>
+    <div style='display: flex; justify-content: center; gap: 8px;'>
+        <button class='button button-primary enroll-btn' data-id='{$index}' data-email='" . esc_attr($applicant['student_email']) . "'>Enroll</button>
+        
+        <button class='button edit-btn' data-id='{$index}' style='border:none;'>
+            <span class='dashicons dashicons-edit'></span>
+        </button>
+        
+        <button class='button save-btn' data-id='{$index}' style='border:none; display:none;'>
+            Save
+        </button>
+        
+        <button class='button delete-btn' data-id='{$index}' style='border:none; color:red;'>
+            <span class='dashicons dashicons-trash'></span>
+        </button>
+    </div>
+</td>
+
+    </tr>";
+}
+
 
     echo "</tbody></table></div>";
 }
@@ -1341,17 +1363,24 @@ echo '
     </table>
 </div>
 
-    <div id="modalContent" style="margin-top:20px;">
-          
-    <button id="viewApplicantsBtn" class="button">View Applicants</button>
-    <a href="#" id="viewRegisteredBtn" class="button button-primary">View Registered Students</a>
-          <p id="enrolledCount" style="font-weight: bold; margin: 10px 0;">
-  👨‍🎓 Enrolled Students: 
-  <span id="enrolledCountNumber" style="color:green;">0</span> 
-  <span style="color:#888;">/ 16</span>
-</p>
-  </div>
-      <div id="enrolledList" style="display:none; margin-top: 15px; text-align:left;"></div>
+<div style="margin-top: 20px; text-align:left;">
+  <h3 id="enrolledHeading" style="display:none; text-align:center;">Enrolled Students</h3>
+  <div id="enrolledList" style="display:none;"></div>
+  <p id="enrolledCount" style="font-weight: bold; margin: 10px 0; text-align:center; ">
+    👨‍🎓 Enrolled Students: 
+    <span id="enrolledCountNumber" style="color:green;">0</span> 
+    <span style="color:#888;">/ 16</span>
+  </p>
+</div>
+
+<div id="modalContent" style="margin-top:20px;">
+  <button id="viewApplicantsBtn" class="button">
+  View Applicants (<span id="applicantCount">0</span>)
+</button>
+
+  <a href="#" id="viewRegisteredBtn" class="button button-primary">View Registered Students</a>
+</div>
+
       <div id="registeredList" style="display:none; margin-top:20px; text-align:left;"></div>
       <div id="applicantsList" style="margin-top:20px; text-align:left;"></div>
 
@@ -1377,11 +1406,43 @@ echo '
     </form>
   </div>
 </div>
+<div id="newStudentOnlyModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
+  <div style="background:#fff; width:500px; margin:5% auto; padding:20px; border-radius:8px; position:relative;">
+    <span id="closeNewStudentOnlyModal" style="position:absolute; top:10px; right:15px; font-size:20px; cursor:pointer;">&times;</span>
+    <h2 style="margin-top:0;">New Student Registration</h2>
+    <form id="newStudentOnlyForm">
+        <input type="hidden" name="action" value="save_student_modal">
+        <div class="form-row"><label>Full Name</label><input type="text" name="student_name" required></div>
+        <div class="form-row"><label>Date of Birth</label><input type="date" name="dob" required></div>
+        <div class="form-row">
+            <label>Gender</label>
+            <label><input type="radio" name="gender" value="Male"> Male</label>
+            <label><input type="radio" name="gender" value="Female"> Female</label>
+        </div>
+        <div class="form-row"><label>Email</label><input type="email" name="email" required></div>
+        <div class="form-row"><label>Phone</label><input type="text" name="phone" required></div>
+        <button type="submit" class="button button-primary">Register</button>
+    </form>
+  </div>
+</div>
 ';
 
 echo ' 
 <script> 
 document.addEventListener("DOMContentLoaded", function () {
+      // Delegate click inside registeredList for the new student button
+  document.getElementById("registeredList").addEventListener("click", function(e) {
+    if (e.target && e.target.id === "openStudentRegisterModal") {
+      const form = document.getElementById("studentRegisterForm");
+      form.reset();
+      document.getElementById("studentRegisterModal").style.display = "block";
+    }
+  });
+
+  // Close student modal as before
+  document.getElementById("closeStudentModal").onclick = function() {
+    document.getElementById("studentRegisterModal").style.display = "none";
+  };
     const modal = document.getElementById("batchModal");
     const closeModal = document.getElementById("closeModal");
     const enrolledBtn = document.getElementById("viewEnrolledBtn");
@@ -1403,11 +1464,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
             currentBatchNo = batchNo;
             updateEnrolledCount(currentBatchNo);
+            updateApplicantCount(currentBatchNo);
             document.getElementById("batchTitle").textContent = "Batch No: " + batchNo;
             document.getElementById("detailCourse").textContent = course;
             document.getElementById("detailInstructor").textContent = instructor;
             document.getElementById("detailDateRange").textContent = `${startDate} → ${endDate}`;
             document.getElementById("detailTimeRange").textContent = `${startTime} - ${endTime}`;
+            document.getElementById("enrolledHeading").style.display = "block";
+            document.getElementById("enrolledList").style.display = "block";
+
 
 
 
@@ -1420,6 +1485,7 @@ document.addEventListener("DOMContentLoaded", function () {
            registeredList.style.display = "none";
            enrolledList.innerHTML = "<p>Loading enrolled students...</p>";
            enrolledList.style.display = "block";
+           document.getElementById("enrolledHeading").style.display = "block";
            
            // Fetch enrolled students automatically when modal opens
            fetch(ajaxurl, {
@@ -1430,6 +1496,19 @@ document.addEventListener("DOMContentLoaded", function () {
            .then(res => res.text())
            .then(html => {
                enrolledList.innerHTML = html;
+               // ✅ Reload enrolled list
+                fetch(ajaxurl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: "action=get_enrolled_students_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
+                })
+                .then(res => res.text())
+                .then(html => {
+                    document.getElementById("enrolledList").innerHTML = html;
+                    document.getElementById("enrolledList").style.display = "block";
+                    document.getElementById("enrolledHeading").style.display = "block";
+                });
+
            })
            .catch(() => {
                enrolledList.innerHTML = "<p style=\'color:red;\'>Failed to load enrolled students.</p>";
@@ -1454,7 +1533,7 @@ applicantsBtn.onclick = function () {
         isApplicantsVisible = false;
     } else {
         // Show applicants, hide others
-        enrolledList.style.display = "none";
+        //enrolledList.style.display = "none";
         registeredList.style.display = "none";
 
         applicantsList.innerHTML = "<p>Loading applicants...</p>";
@@ -1655,6 +1734,27 @@ function updateEnrolledCount(batchNo) {
         document.getElementById("enrolledCountNumber").textContent = "0";
     });
 }
+function updateApplicantCount(batchNo) {
+  fetch(ajaxurl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      action: "get_applicant_count_by_batch",
+      batch_no: batchNo
+    })
+  })
+  .then(res => res.json())
+  .then(res => {
+    if (res.success) {
+      document.getElementById("applicantCount").textContent = res.data.count;
+    } else {
+      document.getElementById("applicantCount").textContent = "0";
+    }
+  })
+  .catch(() => {
+    document.getElementById("applicantCount").textContent = "0";
+  });
+}
 
 const registeredBtn = document.getElementById("viewRegisteredBtn");
 const registeredList = document.getElementById("registeredList");
@@ -1672,7 +1772,7 @@ registeredBtn.onclick = function () {
         isRegisteredVisible = false;
     } else {
         // Show registered, hide others
-        enrolledList.style.display = "none";
+        //enrolledList.style.display = "none";
         applicantsList.style.display = "none";
 
         registeredList.innerHTML = "<p>Loading registered students...</p>";
@@ -1696,6 +1796,154 @@ registeredBtn.onclick = function () {
     return false;
 };
 
+
+
+document.addEventListener("DOMContentLoaded", function () {
+    // Close modal
+    document.getElementById("closeNewStudentOnlyModal").addEventListener("click", function() {
+        document.getElementById("newStudentOnlyModal").style.display = "none";
+    });
+
+    // Handle submit
+    document.getElementById("newStudentOnlyForm").addEventListener("submit", function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const modal = document.getElementById("newStudentOnlyModal");
+
+        fetch(ajaxurl, {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                alert("🎉 Student registered successfully!\nID: " + res.data.student_id);
+                modal.style.display = "none";
+            } else {
+                alert("❌ Failed to register student.\n" + res.data);
+            }
+        });
+    });
+});
+
+// 
+document.addEventListener("click", function(e) {
+    if (e.target && e.target.id === "openNewStudentOnlyModal") {
+        const form = document.getElementById("newStudentOnlyForm");
+        form.reset();
+        document.getElementById("newStudentOnlyModal").style.display = "block";
+    }
+});
+
+document.addEventListener("click", function (e) {
+  // Handle Edit button click
+  if (e.target.closest(".edit-btn")) {
+    const row = e.target.closest("tr");
+    row.querySelectorAll(".view-field").forEach(el => el.style.display = "none");
+    row.querySelectorAll(".edit-field").forEach(el => el.style.display = "inline-block");
+
+    row.querySelector(".edit-btn").style.display = "none";
+    row.querySelector(".save-btn").style.display = "inline-block";
+  }
+
+  // Handle Save button click
+  if (e.target.closest(".save-btn")) {
+    const row = e.target.closest("tr");
+    const email = row.dataset.email;
+
+    const inputs = row.querySelectorAll(".edit-field");
+    const updatedData = {
+      full_name: inputs[0].value,
+      dob: inputs[1].value,
+      gender: inputs[2].value,
+      phone: inputs[3].value,
+      email: email
+    };
+
+    fetch(ajaxurl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        action: "update_applicant_data",
+        ...updatedData
+      })
+    })
+    .then(res => res.json())
+    .then(res => {
+      if (res.success) {
+        alert("✅ Applicant updated successfully!");
+
+        // Update spans
+        const spans = row.querySelectorAll(".view-field");
+        spans[0].textContent = updatedData.full_name;
+        spans[1].textContent = updatedData.dob;
+        spans[2].textContent = updatedData.gender;
+        spans[4].textContent = updatedData.phone; // student_email doesnt change
+
+        // Toggle views back
+        row.querySelectorAll(".view-field").forEach(el => el.style.display = "inline-block");
+        row.querySelectorAll(".edit-field").forEach(el => el.style.display = "none");
+        row.querySelector(".edit-btn").style.display = "inline-block";
+        row.querySelector(".save-btn").style.display = "none";
+      } else {
+        alert("❌ Update failed: " + res.data);
+      }
+    })
+    .catch(() => {
+      alert("❌ Server error.");
+    });
+  }
+  // Handle delete button click
+if (e.target.closest(".delete-btn")) {
+    const btn = e.target.closest(".delete-btn");
+    const row = btn.closest("tr");
+    const email = btn.getAttribute("data-email");
+
+    if (!confirm("Are you sure you want to delete this applicant?")) {
+        return;
+    }
+
+    fetch(ajaxurl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+            action: "delete_applicant",
+            email: email
+        })
+    })
+    .then(res => res.json())
+    .then(res => {
+        if (res.success) {
+            alert("Applicant deleted successfully.");
+            row.remove(); // remove row from DOM
+        } else {
+            alert("❌ Failed to delete applicant.\n" + res.data);
+        }
+    })
+    .catch(() => {
+        alert("❌ Server error while deleting.");
+    });
+}
+
+});
+document.addEventListener("click", function(e) {
+    if (e.target.classList.contains("enroll-registered-btn")) {
+        const button = e.target;
+        const email = button.getAttribute("data-email");
+
+        enrollStudent(email, currentBatchNo)
+            .then(() => {
+                alert("✅ Student enrolled successfully!");
+                updateEnrolledCount(currentBatchNo);
+                // Optionally remove row or disable button
+                const row = button.closest("tr");
+                row.remove(); // or button.disabled = true;
+            })
+            .catch(error => {
+                alert("❌ Enrollment failed: " + error);
+            });
+    }
+});
 
 </script>';
 
@@ -1951,11 +2199,11 @@ function get_registered_students_not_enrolled_callback() {
         wp_die();
     }
 
-    echo "<div style='margin-bottom: 12px; text-align: left;'>
-    <a href='" . admin_url('admin.php?page=student-registration') . "' class='button button-primary' target='_blank'>
-        + New Registration
-    </a>
-    </div>";
+echo "<div style='margin-bottom: 12px; text-align: left;'>
+    <button id='openNewStudentOnlyModal' class='button button-primary'>+ New Student</button>
+</div>";
+
+
 
     echo "<table style='width:100%; border-collapse: collapse;'>";
 
@@ -1965,6 +2213,7 @@ function get_registered_students_not_enrolled_callback() {
         <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Gender</th>
         <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Email</th>
         <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Phone</th>
+        <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Action</th>
     </tr></thead><tbody>";
 
     foreach ($results as $student) {
@@ -1974,11 +2223,106 @@ function get_registered_students_not_enrolled_callback() {
             <td style='padding: 6px;'>{$student->gender}</td>
             <td style='padding: 6px;'>{$student->email}</td>
             <td style='padding: 6px;'>{$student->phone}</td>
+        <td style='padding: 6px;'>
+            <button class='button enroll-registered-btn' data-email='{$student->email}'>Enroll</button>
+        </td>
         </tr>";
     }
 
     echo "</tbody></table>";
     wp_die();
+}
+
+// View Applicants Count//
+add_action('wp_ajax_get_applicant_count_by_batch', 'get_applicant_count_by_batch_callback');
+
+add_action('wp_ajax_get_applicant_count_by_batch', 'get_applicant_count_by_batch_callback');
+
+function get_applicant_count_by_batch_callback() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized', 403);
+    }
+
+    global $wpdb;
+    $batch_no = sanitize_text_field($_POST['batch_no']);
+
+    // Get course name for the batch
+    $course_name = $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s LIMIT 1",
+            $batch_no
+        )
+    );
+
+    if (!$course_name) {
+        wp_send_json_success(['count' => 0]);
+        wp_die();
+    }
+
+    // Count applicants (not enrolled) for that course
+    $count = $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}student_enrollments 
+             WHERE course_name = %s AND is_enrolled = 0",
+            $course_name
+        )
+    );
+
+    wp_send_json_success(['count' => intval($count)]);
+}
+
+add_action('wp_ajax_update_applicant_data', 'update_applicant_data_callback');
+
+function update_applicant_data_callback() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized', 403);
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'student_enrollments';
+
+    $email     = sanitize_email($_POST['email']);
+    $full_name = sanitize_text_field($_POST['full_name']);
+    $dob       = sanitize_text_field($_POST['dob']);
+    $gender    = sanitize_text_field($_POST['gender']);
+    $phone     = sanitize_text_field($_POST['phone']);
+
+    $updated = $wpdb->update(
+        $table,
+        [
+            'full_name'    => $full_name,
+            'dob'          => $dob,
+            'gender'       => $gender,
+            'parent_phone' => $phone
+        ],
+        ['student_email' => $email]
+    );
+
+    if ($updated !== false) {
+        wp_send_json_success("Updated");
+    } else {
+        wp_send_json_error("Database update failed");
+    }
+}
+add_action('wp_ajax_delete_applicant', 'delete_applicant_callback');
+
+function delete_applicant_callback() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized', 403);
+    }
+
+    global $wpdb;
+    $email = sanitize_email($_POST['email']);
+
+    $table = $wpdb->prefix . 'student_enrollments';
+
+    $deleted = $wpdb->delete($table, ['student_email' => $email]);
+
+    if ($deleted !== false) {
+        wp_send_json_success("Applicant deleted successfully");
+    } else {
+        wp_send_json_error("Failed to delete applicant");
+    }
 }
 
 
