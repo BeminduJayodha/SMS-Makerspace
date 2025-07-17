@@ -1,5 +1,6 @@
 <?php
 
+
 // Create DB table on activation
 register_activation_hook(__FILE__, 'student_registration_create_table');
 function student_registration_create_table() {
@@ -46,7 +47,7 @@ function student_registration_admin_menu() {
     add_submenu_page(
         'student-registration', 
         'Student Registration',           
-        'New Students',  
+        'New Student',  
         'edit_pages',
         'student-registration',
         'render_student_registration_admin_page',
@@ -54,7 +55,7 @@ function student_registration_admin_menu() {
     add_submenu_page(
         'student-registration',         // parent slug
         'List Students',                // page title
-        'Students List',                // menu title
+        'List Students',                // menu title
         'manage_options',
         'students-list',
         'render_students_list_page'     // function to display content
@@ -73,7 +74,7 @@ function student_registration_admin_menu() {
     add_submenu_page(
         'student-registration',
         'List Course',
-        'Course List',
+        'List Courses',
         'manage_options',
         'course-selection',
         'render_course_selection_list_page'
@@ -1109,12 +1110,11 @@ foreach ($applicants as $index => $applicant) {
         </td>
         <td>
           <span class='view-field'>" . esc_html($applicant['gender']) . "</span>
-          <select class='edit-field' style='display:none;'>
-            <option value='Male'" . selected($applicant['gender'], 'Male', false) . ">Male</option>
-            <option value='Female'" . selected($applicant['gender'], 'Female', false) . ">Female</option>
-          </select>
+          <input class='edit-field' type='text' value='" . esc_attr($applicant['gender']) . "' style='display:none;' />
         </td>
-        <td><span class='view-field'>" . esc_html($applicant['student_email']) . "</span></td>
+        <td><span class='view-field'>" . esc_html($applicant['student_email']) . "</span>
+         <input class='edit-field' type='text' value='" . esc_attr($applicant['student_email']) . "' style='display:none;' />
+        </td>
         <td>
           <span class='view-field'>" . esc_html($applicant['parent_phone']) . "</span>
           <input class='edit-field' type='text' value='" . esc_attr($applicant['parent_phone']) . "' style='display:none;' />
@@ -1364,13 +1364,14 @@ echo '
 </div>
 
 <div style="margin-top: 20px; text-align:left;">
-  <h3 id="enrolledHeading" style="display:none; text-align:center;">Enrolled Students</h3>
-  <div id="enrolledList" style="display:none;"></div>
-  <p id="enrolledCount" style="font-weight: bold; margin: 10px 0; text-align:center; ">
+  <h3 id="enrolledHeading" style="display:none; text-align:center;"></h3>  
+  <p id="enrolledCount" style="font-weight: bold; margin: 10px 0; text-align:center;font-size: 14px; ">
     👨‍🎓 Enrolled Students: 
     <span id="enrolledCountNumber" style="color:green;">0</span> 
     <span style="color:#888;">/ 16</span>
   </p>
+  <div id="enrolledList" style="display:none;"></div>
+
 </div>
 
 <div id="modalContent" style="margin-top:20px;">
@@ -1393,38 +1394,161 @@ echo '
     <h2 style="margin-top:0;">Student Registration</h2>
     <form id="studentRegisterForm">
         <input type="hidden" name="action" value="save_student_modal">
-        <div class="form-row"><label>Full Name</label><input type="text" name="student_name" required></div>
-        <div class="form-row"><label>Date of Birth</label><input type="date" name="dob" required></div>
-        <div class="form-row">
-            <label>Gender</label>
-            <label><input type="radio" name="gender" value="Male"> Male</label>
-            <label><input type="radio" name="gender" value="Female"> Female</label>
-        </div>
-        <div class="form-row"><label>Email</label><input type="email" name="email" required></div>
-        <div class="form-row"><label>Phone</label><input type="text" name="phone" required></div>
+        <div class="form-row"><label>Full Name</label><input type="text" name="student_name" required readonly></div>
+        <div class="form-row"><label>Date of Birth</label><input type="date" name="dob" required readonly></div>
+<div class="form-row">
+  <label>Gender</label>
+  <div id="readonlyGender" class="readonly-field">-</div>
+  <input type="hidden" name="gender" id="hiddenGenderInput">
+</div>
+
+        <div class="form-row"><label>Email</label><input type="email" name="email" required readonly></div>
+        <div class="form-row"><label>Phone</label><input type="text" name="phone" required readonly></div>
         <button type="submit" class="button button-primary">Save</button>
     </form>
   </div>
 </div>
-<div id="newStudentOnlyModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
-  <div style="background:#fff; width:500px; margin:5% auto; padding:20px; border-radius:8px; position:relative;">
-    <span id="closeNewStudentOnlyModal" style="position:absolute; top:10px; right:15px; font-size:20px; cursor:pointer;">&times;</span>
-    <h2 style="margin-top:0;">New Student Registration</h2>
+<style>
+  /* Modal background */
+  #newStudentOnlyModal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+  }
+
+  /* Modal box */
+  #newStudentOnlyModal .modal-content {
+    background: #fff;
+    width: 90%;
+    max-width: 500px;
+    margin: 5% auto;
+    padding: 25px 20px;
+    border-radius: 8px;
+    position: relative;
+  }
+
+  /* Close button */
+  #closeNewStudentOnlyModal {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    font-size: 24px;
+    cursor: pointer;
+  }
+
+  /* Form row */
+  .form-row {
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .form-row label {
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+
+  .form-row input[type="text"],
+  .form-row input[type="date"],
+  .form-row input[type="email"],
+  .form-row input[type="tel"] {
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+
+  /* Radio group inline */
+  .form-row input[type="radio"] {
+    margin-right: 5px;
+  }
+
+  .form-row label input[type="radio"] {
+    display: inline-block;
+    margin-right: 5px;
+  }
+
+  /* Submit button */
+  .button-primary {
+    background-color: #0073aa;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 4px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  .button-primary:hover {
+    background-color: #005d8f;
+  }
+  .dashicons {
+    vertical-align: middle;
+    margin-right: 6px;
+    font-size: 18px;
+}
+.readonly-field {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+  font-size: 14px;
+}
+</style>
+
+<!-- Modal HTML -->
+<div id="newStudentOnlyModal">
+  <div class="modal-content">
+    <span id="closeNewStudentOnlyModal">&times;</span>
+    <h2>New Student Registration</h2>
     <form id="newStudentOnlyForm">
-        <input type="hidden" name="action" value="save_student_modal">
-        <div class="form-row"><label>Full Name</label><input type="text" name="student_name" required></div>
-        <div class="form-row"><label>Date of Birth</label><input type="date" name="dob" required></div>
-        <div class="form-row">
-            <label>Gender</label>
-            <label><input type="radio" name="gender" value="Male"> Male</label>
-            <label><input type="radio" name="gender" value="Female"> Female</label>
-        </div>
-        <div class="form-row"><label>Email</label><input type="email" name="email" required></div>
-        <div class="form-row"><label>Phone</label><input type="text" name="phone" required></div>
-        <button type="submit" class="button button-primary">Register</button>
+      <input type="hidden" name="action" value="save_student_modal">
+
+    <div class="form-row">
+      <label>
+        <span class="dashicons dashicons-admin-users"></span> Full Name
+      </label>
+      <input type="text" name="student_name" required>
+    </div>
+    
+    <div class="form-row">
+      <label>
+        <span class="dashicons dashicons-calendar-alt"></span> Date of Birth
+      </label>
+      <input type="date" name="dob" required>
+    </div>
+    
+    <div class="form-row">
+      <label>
+        <span class="dashicons dashicons-groups"></span> Gender
+      </label>
+      <label><input type="radio" name="gender" value="Male"> Male</label>
+      <label><input type="radio" name="gender" value="Female"> Female</label>
+    </div>
+    
+    <div class="form-row">
+      <label>
+        <span class="dashicons dashicons-email-alt"></span> Email
+      </label>
+      <input type="email" name="email" required>
+    </div>
+    
+    <div class="form-row">
+      <label>
+        <span class="dashicons dashicons-phone"></span> Phone
+      </label>
+      <input type="text" name="phone" required>
+    </div>
+
+
+      <button type="submit" class="button button-primary">Register</button>
     </form>
   </div>
 </div>
+
 ';
 
 echo ' 
@@ -1590,7 +1714,9 @@ applicantsBtn.onclick = function () {
          
                      form.student_name.value = name;
                      form.dob.value = dob;
-                     form.gender.forEach(r => r.checked = (r.value === gender));
+                     document.getElementById("readonlyGender").textContent = gender;
+                     document.getElementById("hiddenGenderInput").value = gender;
+
                      form.email.value = email;
                      form.phone.value = phone;
          
@@ -1622,6 +1748,7 @@ applicantsBtn.onclick = function () {
                          alert("⚠️ Student already registered!\nID: " + res.data.student_id);
                      } else {
                          alert("🎉 Student registered successfully!\nID: " + res.data.student_id);
+                         updateApplicantCount(currentBatchNo);
                          registeredEmails.push(email); // prevent repeat
                      }
          
@@ -1630,15 +1757,43 @@ applicantsBtn.onclick = function () {
                      .then(() => {
                          alert("✅ Student enrolled successfully!");
                          updateEnrolledCount(currentBatchNo);
-             // 🔍 Find the row by matching the email in 4th column (index 3)
-             const rows = document.querySelectorAll("#applicantsList tbody tr");
-             rows.forEach(row => {
-                 const rowEmail = row.children[3].textContent.trim();
-                 if (rowEmail === email) {
-                     row.remove(); // 🗑️ Remove row from applicants list
-                 }
-             });
-         })
+                     
+                         // 🔄 Reload the enrolled list
+                         fetch(ajaxurl, {
+                             method: "POST",
+                             headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                             body: "action=get_enrolled_students_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
+                         })
+                         .then(res => res.text())
+                         .then(html => {
+                             const enrolledList = document.getElementById("enrolledList");
+                             enrolledList.innerHTML = html;
+                             enrolledList.style.display = "block";
+                             document.getElementById("enrolledHeading").style.display = "block";
+                         })
+                         .catch(() => {
+                             document.getElementById("enrolledList").innerHTML = "<p style=\'color:red;\'>Failed to load enrolled students.</p>";
+                         });
+                     
+                         // 🗑️ Remove from applicants list
+                         const rows = document.querySelectorAll("#applicantsList tbody tr");
+                         rows.forEach(row => {
+                             const rowEmail = row.children[3].textContent.trim();
+                             if (rowEmail === email) {
+                                 row.remove();
+                             }
+                         });
+                         
+                         // ✅ If no applicants left, show "No applicants" message instead of empty table
+                        const remainingRows = document.querySelectorAll("#applicantsList tbody tr");
+                        if (remainingRows.length === 0) {
+                            const courseName = document.getElementById("detailCourse").textContent.trim();
+                            document.getElementById("applicantsList").innerHTML =
+                                `<p>No applicants found for course: <strong>${courseName}</strong></p>`;
+                        }
+                        updateApplicantCount(currentBatchNo);
+                     })
+
                      .catch(error => {
                          alert("❌ Enrollment failed: " + error);
                      });
@@ -1800,31 +1955,55 @@ registeredBtn.onclick = function () {
 
 document.addEventListener("DOMContentLoaded", function () {
     // Close modal
-    document.getElementById("closeNewStudentOnlyModal").addEventListener("click", function() {
+    document.getElementById("closeNewStudentOnlyModal").addEventListener("click", function () {
         document.getElementById("newStudentOnlyModal").style.display = "none";
     });
 
     // Handle submit
-    document.getElementById("newStudentOnlyForm").addEventListener("submit", function(e) {
+    document.getElementById("newStudentOnlyForm").addEventListener("submit", function (e) {
         e.preventDefault();
         const formData = new FormData(this);
         const modal = document.getElementById("newStudentOnlyModal");
+        const registeredList = document.getElementById("registeredList");
 
         fetch(ajaxurl, {
             method: "POST",
             body: formData
         })
-        .then(res => res.json())
-        .then(res => {
-            if (res.success) {
-                alert("🎉 Student registered successfully!\nID: " + res.data.student_id);
-                modal.style.display = "none";
-            } else {
-                alert("❌ Failed to register student.\n" + res.data);
-            }
-        });
+            .then(response => response.json())
+            .then(res => {
+                if (res.success) {
+                    alert("🎉 Student registered successfully!\nID: " + res.data.student_id);
+                    updateApplicantCount(currentBatchNo);
+                    modal.style.display = "none";
+
+                    // ✅ Always show and refresh registered list
+                    registeredList.style.display = "block"; // Show the list
+                    registeredList.innerHTML = "<p>Refreshing registered students...</p>";
+
+                    fetch(ajaxurl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: "action=get_registered_students_not_enrolled&batch_no=" + encodeURIComponent(currentBatchNo)
+                    })
+                        .then(res => res.text())
+                        .then(html => {
+                            registeredList.innerHTML = html;
+                        })
+                        .catch(() => {
+                            registeredList.innerHTML = "<p style=\'color:red;\'>Failed to refresh registered students.</p>";
+                        });
+                } else {
+                    const errorMessage = res.data || "Unknown error";
+                    alert("❌ Failed to register student.\n" + errorMessage);
+                }
+            })
+            .catch(error => {
+                alert("❌ Request failed: " + error.message);
+            });
     });
 });
+
 
 // 
 document.addEventListener("click", function(e) {
@@ -1933,12 +2112,27 @@ document.addEventListener("click", function(e) {
 
         enrollStudent(email, currentBatchNo)
             .then(() => {
-                alert("✅ Student enrolled successfully!");
-                updateEnrolledCount(currentBatchNo);
-                // Optionally remove row or disable button
-                const row = button.closest("tr");
-                row.remove(); // or button.disabled = true;
+             alert("✅ Student enrolled successfully!");
+             updateEnrolledCount(currentBatchNo);
+         
+             // Refresh enrolled list immediately
+             fetch(ajaxurl, {
+                 method: "POST",
+                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                 body: "action=get_enrolled_students_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
+             })
+             .then(res => res.text())
+             .then(html => {
+                 document.getElementById("enrolledList").innerHTML = html;
+                 document.getElementById("enrolledList").style.display = "block";
+                 document.getElementById("enrolledHeading").style.display = "block";
+             });
+         
+             // Remove the enrolled student row from registered list
+             const row = button.closest("tr");
+             row.remove(); // or button.disabled = true;
             })
+
             .catch(error => {
                 alert("❌ Enrollment failed: " + error);
             });
