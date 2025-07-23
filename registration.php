@@ -1,5 +1,6 @@
 <?php
 
+
 // Create DB table on activation
 register_activation_hook(__FILE__, 'student_registration_create_table');
 function student_registration_create_table() {
@@ -1554,28 +1555,56 @@ button.enroll-registered-btn:disabled {
     </form>
   </div>
 </div>
-<!--Registration Fee Update Modal -->
+<!-- Registration Fee Update Modal -->
 <div id="registrationFeeModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
   <div style="background:#fff; width:400px; margin:10% auto; padding:20px; border-radius:8px; position:relative;">
     <span id="closeRegModal" style="position:absolute; top:10px; right:15px; cursor:pointer; font-size:18px;">&times;</span>
+    
     <h3 id="modalStudentName"></h3>
     <p id="modalStudentFee" style="margin: 5px 0;"></p>
+    <p id="modalCourseNameText" style="margin: 5px 0;"></p>
+    <p id="modalBatchNoText" style="margin: 5px 0;"></p> 
+    <p id="modalBatchNo" style="margin: 5px 0;"></p>        
+    <p id="modalCourseName" style="margin: 5px 0;"></p>
     <p id="feeStatusText" style="margin-top: 10px;"></p>
-    <button id="markAsPaidBtn" class="button button-primary" style="display:none;">Pay Registration Fee ✅</button>
-    <!-- Payment Plan Section (initially hidden) -->
-<div id="paymentPlanSection" style="display:block; margin-top: 20px;">
-  <h4>Payment Plan</h4>
-<!-- Include this where your HTML modal is -->
-<p id="courseFeeDisplay">Course Fee: Rs. 0</p>
-<p id="finalAmountDisplay" style="font-weight:bold;">Final Amount: Rs. 0</p>
-<div id="discountContainer" style="display:none; margin-top:10px;">
-  <label>Discount Amount: Rs. <input type="number" id="discountAmount" min="0" step="1" /></label>
-</div>
-<form id="paymentPlanForm">
-  <label><input type="radio" name="paymentPlan" value="full" /> Full Payment</label><br>
-  <label><input type="radio" name="paymentPlan" value="monthly" /> Monthly Payment</label><br>
+
+    <!-- Checkbox replaces Pay button -->
+    <label style="margin-top: 10px; display:block;">
+      <input type="checkbox" id="confirmRegPaidCheckbox" />
+      I confirm the registration fee is paid 
+    </label>
+
+    <!-- Payment Plan Section -->
+    <div id="paymentPlanSection" style="display:block; margin-top: 20px;">
+      <h2><u>Payment Plan</u></h2>
+      <p id="courseFeeDisplay">Course Fee: Rs. 0</p>
+
+
+      <p id="finalAmountDisplay" style="font-weight:bold;">Final Amount: Rs. 0</p>
+
+      <div id="discountContainer" style="display:none; margin-top:10px;">
+        <label>Discount Percentage: <input type="number" id="discountAmount" min="0" max="100" step="1" /></label>
+      </div>
+
+      <form id="paymentPlanForm">
+        <label><input type="radio" name="paymentPlan" value="full" /> Full Payment</label><br>
+        <label><input type="radio" name="paymentPlan" value="monthly" /> Monthly Payment</label><br>
+      </form>
+    </div>
+
+    <!-- Enroll Button -->
+    <form id="enrollStudentForm" style="display:none;">
+  <input type="hidden" name="action" value="enroll_registered_student">
+  <input type="hidden" name="student_id" id="enrollStudentId">
+  <input type="hidden" name="payment_plan" id="enrollPaymentPlan">
+  <input type="hidden" name="batch_no" id="enrollBatchNo">
+  <input type="hidden" name="course_name" id="enrollCourseName">
 </form>
 
+<button id="enrollBtn" class="button button-primary" style="margin-top: 15px;">Enroll</button>
+
+  </div>
+</div>
 </div>
   </div>
 </div>
@@ -1991,48 +2020,98 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     // Handle submit
-    document.getElementById("newStudentOnlyForm").addEventListener("submit", function (e) {
-        e.preventDefault();
-        const formData = new FormData(this);
-        const modal = document.getElementById("newStudentOnlyModal");
-        const registeredList = document.getElementById("registeredList");
+document.getElementById("enrollBtn").addEventListener("click", function () {
+  const selectedPlan = document.querySelector("input[name=\"paymentPlan\"]:checked")?.value;
+  const selectedRow = document.querySelector(".registered-student-row.selected");
+
+  if (!selectedPlan) return alert("⚠️ Please select a payment plan.");
+  if (!selectedRow) return alert("❌ Student row not selected.");
+
+  const studentId = selectedRow.getAttribute("data-student-id");
+  const batchNo = selectedRow.getAttribute("data-batch-no");
+  const courseName = selectedRow.getAttribute("data-course-name");
+
+    // Log to debug
+  console.log("Submitting to enroll:", {
+    student_id: studentId,
+    payment_plan: selectedPlan,
+    batch_no: batchNo,
+    course_name: courseName
+  });
+  // Fill hidden form
+  document.getElementById("enrollStudentId").value = studentId;
+  document.getElementById("enrollPaymentPlan").value = selectedPlan;
+  document.getElementById("enrollBatchNo").value = batchNo;
+  document.getElementById("enrollCourseName").value = courseName;
+  console.log("COURSE NAME:", courseName);
+
+
+  const form = document.getElementById("enrollStudentForm");
+  const formData = new FormData(form);
+  const modal = document.getElementById("registrationFeeModal");
+  const registeredList = document.getElementById("registeredList");
+
+  fetch(ajaxurl, {
+    method: "POST",
+    body: formData
+  })
+    .then(response => response.json())
+    .then(res => {
+      if (res.success) {
+        alert("🎉 Student enrolled successfully!\nID: " + res.data.student_id);
+        modal.style.display = "none";
+
+        registeredList.style.display = "block";
+        registeredList.innerHTML = "<p>Refreshing registered students...</p>";
 
         fetch(ajaxurl, {
-            method: "POST",
-            body: formData
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "action=get_registered_students_not_enrolled&batch_no=" + encodeURIComponent(batchNo)
         })
-            .then(response => response.json())
-            .then(res => {
-                if (res.success) {
-                    alert("🎉 Student registered successfully!\nID: " + res.data.student_id);
-                    updateApplicantCount(currentBatchNo);
-                    modal.style.display = "none";
+          .then(res => res.text())
+          .then(html => {
+            registeredList.innerHTML = html;
+          })
+          .catch(() => {
+            registeredList.innerHTML = "<p style=\'color:red;\'>Failed to refresh registered students.</p>";
+          });
+            updateEnrolledCount(batchNo);
 
-                    // ✅ Always show and refresh registered list
-                    registeredList.style.display = "block"; // Show the list
-                    registeredList.innerHTML = "<p>Refreshing registered students...</p>";
-
-                    fetch(ajaxurl, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: "action=get_registered_students_not_enrolled&batch_no=" + encodeURIComponent(currentBatchNo)
-                    })
-                        .then(res => res.text())
-                        .then(html => {
-                            registeredList.innerHTML = html;
-                        })
-                        .catch(() => {
-                            registeredList.innerHTML = "<p style=\'color:red;\'>Failed to refresh registered students.</p>";
-                        });
-                } else {
-                    const errorMessage = res.data || "Unknown error";
-                    alert("❌ Failed to register student.\n" + errorMessage);
-                }
-            })
-            .catch(error => {
-                alert("❌ Request failed: " + error.message);
-            });
+  fetch(ajaxurl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "action=get_enrolled_students_by_batch&batch_no=" + encodeURIComponent(batchNo)
+  })
+  .then(res => res.text())
+  .then(html => {
+    const enrolledList = document.getElementById("enrolledList");
+    enrolledList.innerHTML = html;
+    enrolledList.style.display = "block";
+    document.getElementById("enrolledHeading").style.display = "block";
+  })
+  .catch(() => {
+    document.getElementById("enrolledList").innerHTML = "<p style=\'color:red;\'>Failed to refresh enrolled students.</p>";
+  });
+      } else {
+        const errorMessage = res.data || "Unknown error";
+        alert("❌ Failed to enroll student.\n" + errorMessage);
+      }
+    })
+    .catch(error => {
+      alert("❌ Request failed: " + error.message);
     });
+});
+
+});
+document.addEventListener("click", function (e) {
+  if (e.target.closest(".registered-student-row")) {
+    document.querySelectorAll(".registered-student-row").forEach(r => r.classList.remove("selected"));
+    const row = e.target.closest(".registered-student-row");
+    row.classList.add("selected");
+
+    // existing modal logic...
+  }
 });
 
 
@@ -2175,6 +2254,8 @@ document.addEventListener("click", function(e) {
 document.addEventListener("click", function (e) {
   if (e.target.closest(".registered-student-row")) {
     const row = e.target.closest(".registered-student-row");
+    const courseName = row.getAttribute("data-course-name") || "";
+    const batchNo = row.getAttribute("data-batch-no") || "";
     const studentId = row.getAttribute("data-student-id");
     const studentName = row.getAttribute("data-student-name");
     const isPaid = row.getAttribute("data-registration-paid") == "1";
@@ -2200,6 +2281,8 @@ document.getElementById("paymentPlanForm").setAttribute("data-end-date", endDate
     // Show registration modal
     document.getElementById("modalStudentName").textContent = studentName;
     document.getElementById("modalStudentFee").textContent = `Registration Fee: Rs. ${registrationFee}`;
+    document.getElementById("modalCourseNameText").textContent = "Course Name: " + courseName;
+    document.getElementById("modalBatchNoText").textContent = "Batch No: " + batchNo;
     document.getElementById("registrationFeeModal").style.display = "block";
 
     // Set course fee
@@ -2210,17 +2293,22 @@ document.getElementById("paymentPlanForm").setAttribute("data-end-date", endDate
     document.getElementById("discountContainer").style.display = "none";
 
     // Handle payment section visibility
-    if (isPaid) {
-      document.getElementById("feeStatusText").textContent = "✅ Registration fee already paid.";
-      document.getElementById("markAsPaidBtn").style.display = "none";
-      enablePaymentPlanSection(true);
-    } else {
-      document.getElementById("feeStatusText").textContent =
-        "Above named student registration fee not paid. Click on following button you want to mark as paid.";
-      document.getElementById("markAsPaidBtn").style.display = "inline-block";
-      document.getElementById("markAsPaidBtn").setAttribute("data-student-id", studentId);
-      enablePaymentPlanSection(false);
-    }
+if (isPaid) {
+  document.getElementById("feeStatusText").textContent = "✅ Registration fee already paid.";
+  document.getElementById("confirmRegPaidCheckbox").checked = true;
+  document.getElementById("confirmRegPaidCheckbox").disabled = true;
+  enablePaymentPlanSection(true);
+  document.getElementById("enrollBtn").style.display = "inline-block";
+} else {
+  document.getElementById("feeStatusText").textContent =
+    "Above named student registration fee not paid. Please confirm it to enable payment plan.";
+  document.getElementById("confirmRegPaidCheckbox").checked = false;
+  document.getElementById("confirmRegPaidCheckbox").disabled = false;
+  enablePaymentPlanSection(false);
+  document.getElementById("enrollBtn").style.display = "none";
+}
+
+
   }
 
   // Close modal
@@ -2229,97 +2317,57 @@ document.getElementById("paymentPlanForm").setAttribute("data-end-date", endDate
   }
 
   // Mark as paid handler
-  if (e.target.id === "markAsPaidBtn") {
-    const studentId = e.target.getAttribute("data-student-id");
 
-    fetch(ajaxurl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        action: "mark_registration_fee_paid",
-        student_id: studentId,
-      }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          alert("Marked as paid successfully!");
-
-          document.getElementById("feeStatusText").textContent = "✅ Registration fee already paid.";
-          document.getElementById("markAsPaidBtn").style.display = "none";
-          enablePaymentPlanSection(true);
-
-          const row = document.querySelector(`.registered-student-row[data-student-id="${studentId}"]`);
-          if (row) {
-            row.setAttribute("data-registration-paid", "1");
-            const enrollBtn = row.querySelector(".enroll-registered-btn");
-            if (enrollBtn) {
-              enrollBtn.disabled = false;
-              enrollBtn.removeAttribute("title");
-            }
-          }
-        }
-      });
-  }
 });
 
 // Enable or disable payment plan section
-function enablePaymentPlanSection(enabled) {
-  const section = document.getElementById("paymentPlanSection");
-  section.style.display = enabled ? "block" : "none";
-}
+document.getElementById("confirmRegPaidCheckbox").addEventListener("change", function () {
+  const isChecked = this.checked;
+  enablePaymentPlanSection(isChecked);
+  document.getElementById("enrollBtn").style.display = isChecked ? "inline-block" : "none";
+});
 
+
+// Handle payment plan selection
 // Handle payment plan selection
 document.getElementById("paymentPlanForm").addEventListener("change", function (e) {
   const selected = document.querySelector("input[name=\"paymentPlan\"]:checked")?.value;
-  const discountContainer = document.getElementById("discountContainer");
 
-  if (selected === "full") {
-    discountContainer.style.display = "block";
-  } else {
-    discountContainer.style.display = "none";
-    document.getElementById("discountAmount").value = "";
-  }
+  // Hide manual discount always
+  document.getElementById("discountContainer").style.display = "none";
+  document.getElementById("discountAmount").value = "";
 
-  updateFinalAmount(); // Recalculate when plan changes
+  updateFinalAmount(); // 
 });
+
 
 // Handle discount input changes
 document.getElementById("discountAmount").addEventListener("input", updateFinalAmount);
 
 // Final amount calculator with monthly breakdown
-if (selectedPlan === "monthly") {
-  const months = parseInt(document.getElementById("paymentPlanForm").getAttribute("data-total-months")) || 1;
-  const startDateStr = document.getElementById("paymentPlanForm").getAttribute("data-start-date");
-  const endDateStr = document.getElementById("paymentPlanForm").getAttribute("data-end-date");
+function updateFinalAmount() {
+  const courseFee = parseFloat(document.getElementById("courseFeeDisplay").getAttribute("data-course-fee")) || 0;
+  const selectedPlan = document.querySelector("input[name=\"paymentPlan\"]:checked")?.value;
+  const totalMonths = parseInt(document.getElementById("paymentPlanForm").getAttribute("data-total-months")) || 1;
 
-  if (startDateStr && endDateStr) {
-    const start = new Date(startDateStr);
-    const end = new Date(endDateStr);
-    const monthlyFee = finalAmount / months;
+  let output = "";
 
-    // Array of month names
-    const monthNames = ["January", "February", "March", "April", "May", "June",
-                        "July", "August", "September", "October", "November", "December"];
+  if (selectedPlan === "full") {
+    const discountPercent = 10;
+    const discountAmount = courseFee * (discountPercent / 100);
+    const finalAmount = courseFee - discountAmount;
 
-    let breakdown = "<br><div style='font-size:14px; color:#555; margin-top:6px;'><strong>Monthly Breakdown:</strong><br>";
-
-    let current = new Date(start.getFullYear(), start.getMonth(), 1); // first day of start month
-    const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
-
-    while (current <= endMonth) {
-      const monthName = monthNames[current.getMonth()];
-      const year = current.getFullYear();
-      breakdown += `${monthName} ${year}: Rs. ${monthlyFee.toFixed(2)}<br>`;
-
-      // move to next month
-      current.setMonth(current.getMonth() + 1);
-    }
-
-    breakdown += "</div>";
-
-    output += breakdown;
+    output += `<span style="font-size: 14px; color: #777;">(10% discount applied)</span><br>`;
+    output += `<strong>Final Amount: Rs. ${finalAmount.toFixed(2)}</strong>`;
+  } else if (selectedPlan === "monthly") {
+    const monthlyAmount = courseFee / totalMonths;
+    output += `<strong>Final Amount: Rs. ${monthlyAmount.toFixed(2)}</strong>`;
+    output += `<br><span style="font-size: 14px; color: #555;">(Rs. ${monthlyAmount.toFixed(2)} x ${totalMonths} months)</span>`;
+  } else {
+    output = "Please select a payment plan.";
   }
+
+  document.getElementById("finalAmountDisplay").innerHTML = output;
 }
 
 
@@ -2336,6 +2384,29 @@ function enablePaymentPlanSection(enable) {
     input.disabled = !enable;
   });
 }
+document.addEventListener("click", function(e) {
+  if (e.target.classList.contains("enrolled-pagination")) {
+    const page = e.target.getAttribute("data-page");
+    const batchNo = e.target.getAttribute("data-batch");
+
+    fetch(ajaxurl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        action: "get_enrolled_students_by_batch",
+        batch_no: batchNo,
+        page: page
+      })
+    })
+    .then(res => res.text())
+    .then(html => {
+      document.getElementById("enrolledList").innerHTML = html;
+    })
+    .catch(() => {
+      document.getElementById("enrolledList").innerHTML = "<p style=\'color:red;\'>Failed to load page.</p>";
+    });
+  }
+});
 
 
 
@@ -2490,7 +2561,47 @@ function enroll_student_in_course_handler() {
 }
 
 
+add_action('wp_ajax_enroll_registered_student', 'handle_enroll_registered_student');
 
+function handle_enroll_registered_student() {
+    global $wpdb;
+
+    $student_id   = intval($_POST['student_id']);
+    $payment_plan = sanitize_text_field($_POST['payment_plan']);
+    $batch_no     = sanitize_text_field($_POST['batch_no']);
+    $course_name  = sanitize_text_field($_POST['course_name']);
+
+    // Optional fallback if course_name is missing
+    if (empty($course_name)) {
+        $course_name = $wpdb->get_var($wpdb->prepare(
+            "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s",
+            $batch_no
+        ));
+    }
+
+    $table = $wpdb->prefix . 'students_course_enrollment';
+
+    $data = [
+        'student_id'   => $student_id,
+        'payment_plan' => $payment_plan,
+        'batch_no'     => $batch_no,
+        'course_name'  => $course_name,
+        'enrolled_at'  => current_time('mysql')
+    ];
+
+    $format = ['%d', '%s', '%s', '%s', '%s'];
+
+    $inserted = $wpdb->insert($table, $data, $format);
+
+    if ($inserted) {
+        wp_send_json_success(['student_id' => $student_id]);
+    } else {
+        wp_send_json_error("❌ Failed to enroll student: " . $wpdb->last_error);
+    }
+}
+
+
+add_action('wp_ajax_get_enrolled_students_by_batch', 'get_enrolled_students_by_batch_callback');
 add_action('wp_ajax_get_enrolled_students_by_batch', 'get_enrolled_students_by_batch_callback');
 function get_enrolled_students_by_batch_callback() {
     if (!current_user_can('manage_options')) {
@@ -2499,23 +2610,33 @@ function get_enrolled_students_by_batch_callback() {
 
     global $wpdb;
     $batch_no = sanitize_text_field($_POST['batch_no']);
+    $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
+    $per_page = 4;
+    $offset = ($page - 1) * $per_page;
 
     $enrollments_table = $wpdb->prefix . 'students_course_enrollment';
     $students_table = $wpdb->prefix . 'student_registrations';
 
-    // Join to get full student details
-$students = $wpdb->get_results(
-    $wpdb->prepare(
-        "SELECT r.student_name, r.dob, r.gender, r.email, r.phone, r.student_id
-         FROM $enrollments_table e
-         INNER JOIN $students_table r 
-         ON BINARY e.student_id = BINARY r.student_id
-         WHERE e.batch_no = %s",
-        $batch_no
-    ),
-    ARRAY_A
-);
+    // Get total count
+    $total_count = $wpdb->get_var($wpdb->prepare("
+        SELECT COUNT(*) FROM $enrollments_table WHERE batch_no = %s
+    ", $batch_no));
 
+    $total_pages = ceil($total_count / $per_page);
+
+    // Get paginated data
+    $students = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT r.student_name, r.dob, r.gender, r.email, r.phone, r.student_id, e.payment_plan
+             FROM $enrollments_table e
+             INNER JOIN $students_table r 
+             ON BINARY e.student_id = BINARY r.student_id
+             WHERE e.batch_no = %s
+             LIMIT %d OFFSET %d",
+            $batch_no, $per_page, $offset
+        ),
+        ARRAY_A
+    );
 
     if (empty($students)) {
         echo "<p>No students enrolled in this batch.</p>";
@@ -2532,25 +2653,48 @@ $students = $wpdb->get_results(
                     <th style='border-bottom:1px solid #ccc; padding:8px;'>Gender</th>
                     <th style='border-bottom:1px solid #ccc; padding:8px;'>Email</th>
                     <th style='border-bottom:1px solid #ccc; padding:8px;'>Phone</th>
+                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Payment Plan</th>
                 </tr>
             </thead>
             <tbody>";
 
     foreach ($students as $student) {
+        $plan = strtolower($student['payment_plan']);
+        $badge = "";
+        $commonStyle = "padding: 4px 10px; border-radius: 12px; font-weight: bold; border: 2px solid; display: inline-block;";
+        if ($plan === 'full') {
+            $badge = "<span style='$commonStyle color: #2e7d32; border-color: #81c784; background-color: #e8f5e9;'>Full</span>";
+        } elseif ($plan === 'monthly') {
+            $badge = "<span style='$commonStyle color: #e65100; border-color: #ffb74d; background-color: #fff3e0;'>Monthly</span>";
+        } else {
+            $badge = "<span style='$commonStyle color: #b71c1c; border-color: #ef9a9a; background-color: #ffebee;'>Other</span>";
+        }
+
         echo "<tr>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['student_id']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['student_name']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['dob']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['gender']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['email']) . "</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>" . esc_html($student['phone']) . "</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['student_id']}</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['student_name']}</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['dob']}</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['gender']}</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['email']}</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['phone']}</td>
+                <td style='padding:8px; border-bottom:1px solid #eee;'>$badge</td>
               </tr>";
     }
 
     echo "</tbody></table></div>";
 
+    // Pagination controls
+    if ($total_pages > 1) {
+        echo "<div style='margin-top:10px; text-align:center;'>";
+        for ($i = 1; $i <= $total_pages; $i++) {
+            echo "<button class='enrolled-pagination' data-page='$i' data-batch='$batch_no' style='margin: 0 4px; padding: 4px 10px;'>$i</button>";
+        }
+        echo "</div>";
+    }
+
     wp_die();
 }
+
 add_action('wp_ajax_get_enrolled_student_count', 'get_enrolled_student_count_callback');
 function get_enrolled_student_count_callback() {
     if (!current_user_can('manage_options')) {
@@ -2583,14 +2727,14 @@ function get_registered_students_not_enrolled_callback() {
     // Get registration fee and course fee from custom_batches
     $batch_fees = $wpdb->get_row(
         $wpdb->prepare(
-            "SELECT registration_fee, course_fee,start_date, end_date FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s",
+            "SELECT registration_fee,course_name, course_fee,start_date, end_date FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s",
             $batch_no
         )
     );
     
     $registration_fee = $batch_fees->registration_fee ?? 0;
     $course_fee = $batch_fees->course_fee ?? 0;
-
+    $course_name = $batch_fees->course_name ?? '';
 
     // Get students not enrolled in this batch
     $results = $wpdb->get_results($wpdb->prepare("
@@ -2617,7 +2761,7 @@ function get_registered_students_not_enrolled_callback() {
         <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Gender</th>
         <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Email</th>
         <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Phone</th>
-        <th style='padding: 8px; border-bottom: 1px solid #ccc;'>Action</th>
+
     </tr></thead><tbody>";
 
     foreach ($results as $student) {
@@ -2630,6 +2774,8 @@ function get_registered_students_not_enrolled_callback() {
                  data-registration-paid='{$student->registration_fee_paid}'
                  data-registration-fee='{$registration_fee}'
                  data-course-fee='{$course_fee}'
+                 data-batch-no='{$batch_no}'
+                 data-course-name='{$course_name}'
                  data-start-date='{$data->start_date}' 
                  data-end-date='{$data->end_date}'
                  style='cursor:pointer;'>
@@ -2639,9 +2785,7 @@ function get_registered_students_not_enrolled_callback() {
             <td style='padding: 6px;'>{$student->email}</td>
             <td style='padding: 6px;'>{$student->phone}</td>
             <td style='padding: 6px;'>
-                <button class='button enroll-registered-btn' data-email='{$student->email}' $disabled $tooltip>
-                    Enroll
-                </button>
+
             </td>
         </tr>";
     }
