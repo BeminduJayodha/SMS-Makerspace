@@ -1,6 +1,5 @@
 <?php
 
-
 // Create DB table on activation
 register_activation_hook(__FILE__, 'student_registration_create_table');
 function student_registration_create_table() {
@@ -297,6 +296,7 @@ function create_course_enrollments_table() {
         modules TEXT NOT NULL,
         course_fee DECIMAL(10,2) DEFAULT 0.00,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        course_duration VARCHAR(255),
         PRIMARY KEY (id)
     ) $charset_collate;";
 
@@ -662,6 +662,7 @@ function render_course_new_page() {
         $modules = array_map('sanitize_text_field', $_POST['modules'] ?? []);
         $modules_json = json_encode(array_values(array_filter($modules)));
         $course_fee = floatval($_POST['course_fee']);
+        $course_duration = sanitize_text_field($_POST['course_duration']);
 
         $wpdb->insert(
             $wpdb->prefix . 'course_enrollments',
@@ -669,7 +670,8 @@ function render_course_new_page() {
                 'course_id' => $course_id,
                 'course_name' => $course_name,
                 'modules' => $modules_json,
-                'course_fee'  => $course_fee
+                'course_fee'  => $course_fee,
+                'course_duration' => $course_duration
             ]
         );
 
@@ -704,6 +706,11 @@ function render_course_new_page() {
                     <th><label for="course_fee">Course Fee (Rs)</label></th>
                     <td><input type="number" step="0.01" name="course_fee" id="course_fee" required></td>
                 </tr>
+                <tr>
+                  <th><label for="course_duration">Course Duration (e.g., 3 Months)</label></th>
+                  <td><input type="text" name="course_duration" id="course_duration" required></td>
+              </tr>
+
 
             </table>
             <p style="text-align:center;">
@@ -1056,13 +1063,24 @@ function get_applicants_by_batch_callback() {
     global $wpdb;
 
     // Get course_name for the batch
-    $course_name = $wpdb->get_var(
-        $wpdb->prepare(
-            "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s LIMIT 1",
-            $batch_no
-        )
-    );
+$batch_data = $wpdb->get_row(
+  $wpdb->prepare(
+    "SELECT course_name, course_fee, registration_fee FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s LIMIT 1",
+    $batch_no
+  )
+);
+$course_name = $batch_data->course_name;
 
+// Get course_duration from enrollments table
+$course_duration = $wpdb->get_var(
+  $wpdb->prepare(
+    "SELECT course_duration FROM {$wpdb->prefix}course_enrollments WHERE course_name = %s LIMIT 1",
+    $course_name
+  )
+);
+if (!$course_duration) {
+  $course_duration = 1;
+}
     if (!$course_name) {
         echo "<p>No applicants found for this batch.</p>";
         wp_die();
@@ -1099,7 +1117,19 @@ if (empty($applicants)) {
             <tbody>";
 
 foreach ($applicants as $index => $applicant) {
-    echo "<tr data-email='" . esc_attr($applicant['student_email']) . "'>
+    echo "<tr 
+  class='applicant-row'
+  data-email='" . esc_attr($applicant['student_email']) . "' 
+  data-name='" . esc_attr($applicant['full_name']) . "'
+  data-dob='" . esc_attr($applicant['dob']) . "'
+  data-gender='" . esc_attr($applicant['gender']) . "'
+  data-phone='" . esc_attr($applicant['parent_phone']) . "'
+  data-batch='" . esc_attr($batch_no) . "'
+  data-course='" . esc_attr($course_name) . "'
+  data-course-fee='" . esc_attr($batch_data->course_fee) . "'
+  data-course-duration='" . esc_attr($course_duration) . "'
+  data-registration-fee='" . esc_attr($batch_data->registration_fee) . "'>
+
         <td>
           <span class='view-field'>" . esc_html($applicant['full_name']) . "</span>
           <input class='edit-field' type='text' value='" . esc_attr($applicant['full_name']) . "' style='display:none;' />
@@ -1374,40 +1404,309 @@ echo '
 
 </div>
 
+<!-- KEEP buttons hidden but in DOM -->
 <div id="modalContent" style="margin-top:20px;">
-  <button id="viewApplicantsBtn" class="button">
-  View Applicants (<span id="applicantCount">0</span>)
+<!-- HIDDEN button (no count inside!) -->
+<button id="viewApplicantsBtn" class="button" style="display:none;">
+  View Applicants
 </button>
 
-  <a href="#" id="viewRegisteredBtn" class="button button-primary">View Registered Students</a>
-</div>
 
-      <div id="registeredList" style="display:none; margin-top:20px; text-align:left;"></div>
-      <div id="applicantsList" style="margin-top:20px; text-align:left;"></div>
+  <a href="#" id="viewRegisteredBtn" class="button button-primary" style="display:none;">
+    View Registered Students
+  </a>
+
+<!-- Tab headers -->
+<ul id="tabHeaders">
+  <li>
+    <a href="#" class="tab-link active" data-target="applicantsList">
+      Applicants (<span id="applicantCount">0</span>)
+    </a>
+  </li>
+  <li>
+    <a href="#" class="tab-link" data-target="registeredList">
+      Registered Students
+    </a>
+  </li>
+</ul>
+
+
+  <!-- Tab content areas -->
+  <div id="applicantsList" style="margin-top:20px; text-align:left;">
+    <p>Applicant list goes here.</p>
+  </div>
+
+  <div id="registeredList" style="display:none; margin-top:20px; text-align:left;">
+    <p>Registered student list goes here.</p>
+  </div>
+</div>
+<style>
+#tabHeaders {
+  list-style: none;
+  padding-left: 0;
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  border-bottom: 2px solid #ddd;
+}
+
+#tabHeaders li {
+  margin: 0;
+}
+
+.tab-link {
+  padding: 10px 18px;
+  display: inline-block;
+  background-color: #f4f4f4;
+  color: #333;
+  border: 1px solid transparent;
+  border-radius: 8px 8px 0 0;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.tab-link:hover {
+  background-color: #e0e0e0;
+  color: #000;
+}
+
+.tab-link.active {
+  background-color: #0073aa;
+  color: #fff;
+  border: 1px solid #0073aa;
+  border-bottom: none;
+  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.05);
+}
+</style>
+
+<script>
+  // Tab switcher logic
+  document.querySelectorAll(".tab-link").forEach(function(link) {
+    link.addEventListener("click", function(e) {
+      e.preventDefault();
+
+      // Remove active class from all tabs
+      document.querySelectorAll(".tab-link").forEach(function(tab) {
+        tab.classList.remove("active");
+        tab.style.background = "#e2e2e2";
+        tab.style.color = "#000";
+      });
+
+      // Hide all tab content
+      document.querySelectorAll("#applicantsList, #registeredList").forEach(function(div) {
+        div.style.display = "none";
+      });
+
+      // Activate clicked tab
+      this.classList.add("active");
+      this.style.background = "#0073aa";
+      this.style.color = "#fff";
+
+      // Show corresponding tab content
+      const target = this.getAttribute("data-target");
+      document.getElementById(target).style.display = "block";
+    });
+  });
+  
+  
+  document.addEventListener("DOMContentLoaded", function () {
+  let isApplicantsVisible = false;
+
+  const applicantsTab = document.querySelector(".tab-link[data-target=\'applicantsList\']")
+  const applicantsList = document.getElementById("applicantsList");
+  const registeredList = document.getElementById("registeredList");
+  const enrolledList = document.getElementById("enrolledList");
+  const enrolledHeading = document.getElementById("enrolledHeading");
+
+  applicantsTab.addEventListener("click", function () {
+    // This is optional since tabs already show the div — but useful if you need fresh data each time
+    applicantsList.innerHTML = "<p>Loading applicants...</p>";
+    applicantsList.style.display = "block";
+    registeredList.style.display = "none";
+    // ✅ Ensure enrolledList and heading are visible
+    if (enrolledList) enrolledList.style.display = "block";
+    if (enrolledHeading) enrolledHeading.style.display = "block";
+
+
+    fetch(ajaxurl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "action=get_applicants_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
+    })
+    .then(res => res.text())
+    .then(html => {
+      applicantsList.innerHTML = html;
+      updateApplicantCount(currentBatchNo);
+    })
+    .catch(() => {
+      applicantsList.innerHTML = "<p style=\'color:red;\'>Failed to load applicants.</p>";
+    });
+  });
+});
+document.addEventListener("DOMContentLoaded", function () {
+  const registeredTab = document.querySelector(".tab-link[data-target=\'registeredList\']");
+  const registeredList = document.getElementById("registeredList");
+  const applicantsList = document.getElementById("applicantsList");
+  const enrolledList = document.getElementById("enrolledList"); // if you use this
+
+  registeredTab.addEventListener("click", function (e) {
+    e.preventDefault();
+
+    // Show loading message and set visible content
+    registeredList.innerHTML = "<p>Loading registered students...</p>";
+    registeredList.style.display = "block";
+    applicantsList.style.display = "none";
+    // ✅ Ensure enrolledList and heading are visible
+    if (enrolledList) enrolledList.style.display = "block";
+    if (enrolledHeading) enrolledHeading.style.display = "block";
+
+
+    // Fetch registered students list via AJAX
+    fetch(ajaxurl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "action=get_registered_students_not_enrolled&batch_no=" + encodeURIComponent(currentBatchNo)
+    })
+      .then(res => res.text())
+      .then(html => {
+        registeredList.innerHTML = html;
+      })
+      .catch(() => {
+        registeredList.innerHTML = "<p style=\'color:red;\'>Failed to load registered students.</p>";
+      });
+
+    // Update tab active classes (optional)
+    registeredTab.classList.add("active");
+    const applicantsTab = document.querySelector(".tab-link[data-target=\'applicantsList\']");
+    if (applicantsTab) applicantsTab.classList.remove("active");
+  });
+});
+
+</script>
+
 
     </div>
   </div>
 </div>
-<div id="studentRegisterModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
-  <div style="background:#fff; width:500px; margin:5% auto; padding:20px; border-radius:8px; position:relative;">
-    <span id="closeStudentModal" style="position:absolute; top:10px; right:15px; font-size:20px; cursor:pointer;">&times;</span>
-    <h2 style="margin-top:0;">Student Registration</h2>
-    <form id="studentRegisterForm">
-        <input type="hidden" name="action" value="save_student_modal">
-        <div class="form-row"><label>Full Name</label><input type="text" name="student_name" required readonly></div>
-        <div class="form-row"><label>Date of Birth</label><input type="date" name="dob" required readonly></div>
-<div class="form-row">
-  <label>Gender</label>
-  <div id="readonlyGender" class="readonly-field">-</div>
-  <input type="hidden" name="gender" id="hiddenGenderInput">
+<div id="studentDetailsModal" style="display:none; position:fixed; top:50%; left:50%; transform: translate(-50%, -50%);
+     background:#fff; padding:20px; box-shadow:0 0 10px rgba(0,0,0,0.25); z-index:9999; width:300px; border-radius:8px;">
+  <h3>Student Details</h3>
+  <p><strong>Student ID:</strong> <span id="modalStudentId"></span></p>
+  <p><strong>Name:</strong> <span id="modalStudentName"></span></p>
+  <p><strong>Date of Birth:</strong> <span id="modalDob"></span></p>
+  <p><strong>Gender:</strong> <span id="modalGender"></span></p>
+  <p><strong>Email:</strong> <span id="modalEmail"></span></p>
+  <p><strong>Phone:</strong> <span id="modalPhone"></span></p>
+  <span id="closeModalIcon" style="
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-size: 20px;
+  font-weight: bold;
+  color:black;
+  cursor: pointer;
+  transition: color 0.3s;
+">&times;</span>
+
 </div>
 
-        <div class="form-row"><label>Email</label><input type="email" name="email" required readonly></div>
-        <div class="form-row"><label>Phone</label><input type="text" name="phone" required readonly></div>
-        <button type="submit" class="button button-primary">Save</button>
+<!-- Overlay -->
+<div id="modalOverlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9998;"></div>
+
+<!-- Student Registration Modal -->
+<div id="studentRegisterModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
+  <div style="background:#fff; width:600px; max-height:90vh; overflow-y:auto; margin:3% auto; padding:20px; border-radius:8px; position:relative;">
+    
+    <!-- Close Button -->
+    <span id="closeStudentModal" style="position:absolute; top:10px; right:15px; font-size:20px; cursor:pointer;">&times;</span>
+    
+    <h2 style="margin-top:0;">Enroll Student</h2>
+
+    <!-- Embedded Registration Fee Section -->
+    <div id="embeddedRegFeeSection" style="margin-bottom: 20px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; background: #f9f9f9;">
+      <h3 id="embeddedStudentName">Student Name</h3>
+      <p><strong>Batch No:</strong> <span id="visibleBatchNo">-</span></p>
+     <p><strong>Course Name:</strong> <span id="visibleCourseName">-</span></p>
+     <p id="embeddedCourseNameText" style="margin: 5px 0;"></p>
+<p id="embeddedBatchNoText" style="margin: 5px 0;"></p> 
+
+      <p id="embeddedStudentFee">Registration Fee: Rs. 0</p>
+      <p id="embeddedCourseNameText" style="margin: 5px 0;"></p>
+      <p id="embeddedBatchNoText" style="margin: 5px 0;"></p> 
+      <p id="embeddedFeeStatusText" style="margin-top: 10px;"></p>
+
+      <!-- Checkbox -->
+      <label style="margin-top: 10px; display:block;">
+        <input type="checkbox" id="embeddedConfirmPaidCheckbox" />
+        I confirm the registration fee is paid 
+      </label>
+
+      <!-- Payment Plan -->
+      <div id="embeddedPaymentPlanSection" style="margin-top: 20px;">
+        <h4><u>Payment Plan</u></h4>
+        <p id="embeddedCourseFeeDisplay">Course Fee: Rs. 0</p>
+
+        <div id="embeddedDiscountContainer" style="display:none; margin-top:10px;">
+          <label>Discount Percentage:
+            <input type="number" id="embeddedDiscountAmount" min="0" max="100" step="1" />
+          </label>
+        </div>
+
+<form id="embeddedPaymentPlanForm" style="margin-top:10px;">
+  <label>
+    <input type="radio" name="embeddedPaymentPlan" value="full" checked />
+    <span id="embeddedFullSummary" class="summary">[Full payment details]</span>
+  </label><br>
+
+  <label>
+    <input type="radio" name="embeddedPaymentPlan" value="monthly" />
+   <span id="embeddedMonthlySummary" class="summary">[Monthly payment details]</span>
+  </label>
+</form>
+
+
+        <p id="embeddedFinalAmountDisplay" style="font-weight:bold; margin-top: 12px;"></p>
+      </div>
+    </div>
+    <!-- End Embedded Section -->
+
+    <!-- Student Form -->
+    <form id="studentRegisterForm">
+      <input type="hidden" name="action" value="save_student_modal">
+
+      <div class="form-row">
+        <label>Full Name</label>
+        <input type="text" name="student_name" required readonly>
+      </div>
+
+      <div class="form-row">
+        <label>Date of Birth</label>
+        <input type="date" name="dob" required readonly>
+      </div>
+
+      <div class="form-row">
+        <label>Gender</label>
+        <div id="readonlyGender" class="readonly-field">-</div>
+        <input type="hidden" name="gender" id="hiddenGenderInput">
+      </div>
+
+      <div class="form-row">
+        <label>Email</label>
+        <input type="email" name="email" required readonly>
+      </div>
+
+      <div class="form-row">
+        <label>Phone</label>
+        <input type="text" name="phone" required readonly>
+      </div>
+
+      <!-- Save Button (hidden initially) -->
+      <button type="submit" class="button button-primary" id="saveStudentBtn" style="display: none;">Enroll</button>
     </form>
   </div>
 </div>
+
 <style>
   /* Modal background */
   #newStudentOnlyModal {
@@ -1497,6 +1796,14 @@ echo '
   background-color: #f9f9f9;
   font-size: 14px;
 }
+tbody tr:hover {
+  background-color: #f1f1f1;
+  cursor: pointer;
+}
+#studentRegisterForm .form-row {
+  display: none;
+}
+
 </style>
 <!-- get_registered_students_not_enrolled_callback css part -->
 <style>
@@ -1504,7 +1811,31 @@ button.enroll-registered-btn:disabled {
     background-color: #ccc;
     cursor: not-allowed;
 }
+.enrolled-pagination {
+    margin: 0 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    background-color: #fff;
+    color: #000;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    transition: background-color 0.3s ease;
+}
 
+.enrolled-pagination:hover {
+    background-color: #eee;
+}
+
+.enrolled-pagination.active {
+    background-color: #1976d2;
+    color: #fff;
+    border: none;
+    font-weight: bold;
+}
+  #closeModalIcon:hover {
+    color: #333;
+  }
+  
 </style>
 <!-- Modal HTML -->
 <div id="newStudentOnlyModal">
@@ -1561,11 +1892,11 @@ button.enroll-registered-btn:disabled {
     <span id="closeRegModal" style="position:absolute; top:10px; right:15px; cursor:pointer; font-size:18px;">&times;</span>
     
     <h3 id="modalStudentName"></h3>
-    <p id="modalStudentFee" style="margin: 5px 0;"></p>
-    <p id="modalCourseNameText" style="margin: 5px 0;"></p>
+     <p id="modalCourseNameText" style="margin: 5px 0;"></p>
     <p id="modalBatchNoText" style="margin: 5px 0;"></p> 
-    <p id="modalBatchNo" style="margin: 5px 0;"></p>        
-    <p id="modalCourseName" style="margin: 5px 0;"></p>
+    <p id="modalStudentFee" style="margin: 5px 0;"></p>
+    <p id="modalBatchNo" style="margin: 5px 0;display: none;"></p>        
+    <p id="modalCourseName" style="margin: 5px 0;display: none;"></p>
     <p id="feeStatusText" style="margin-top: 10px;"></p>
 
     <!-- Checkbox replaces Pay button -->
@@ -1580,17 +1911,29 @@ button.enroll-registered-btn:disabled {
       <p id="courseFeeDisplay">Course Fee: Rs. 0</p>
 
 
-      <p id="finalAmountDisplay" style="font-weight:bold;">Final Amount: Rs. 0</p>
+      <p id="finalAmountDisplay" style="font-weight:bold; display: none;">Final Amount: Rs. 0</p>
+
 
       <div id="discountContainer" style="display:none; margin-top:10px;">
         <label>Discount Percentage: <input type="number" id="discountAmount" min="0" max="100" step="1" /></label>
       </div>
 
-      <form id="paymentPlanForm">
-        <label><input type="radio" name="paymentPlan" value="full" /> Full Payment</label><br>
-        <label><input type="radio" name="paymentPlan" value="monthly" /> Monthly Payment</label><br>
-      </form>
-    </div>
+       <!-- ✅ Summary text shown above radio buttons -->
+     <form id="paymentPlanForm" style="margin-top:10px;">
+       <label>
+         <input type="radio" name="paymentPlan" value="full" checked />
+         <span id="fullSummary"></span>
+       </label><br>
+       
+       <label>
+         <input type="radio" name="paymentPlan" value="monthly" />
+         <span id="monthlySummary"></span>
+       </label>
+     </form>
+
+
+  <p id="finalAmountDisplay" style="font-weight:bold; margin-top: 12px;"></p>
+</div>
 
     <!-- Enroll Button -->
     <form id="enrollStudentForm" style="display:none;">
@@ -1766,7 +2109,7 @@ applicantsBtn.onclick = function () {
          
                  if (registeredEmails.includes(email)) {
                      alert("✅ Student already registered. Proceeding to enroll...");
-                     enrollStudent(email, currentBatchNo);
+                     enrollStudent(email, currentBatchNo, paymentPlan);
                  } else {
                      // Open Modal and Autofill
                      const modal = document.getElementById("studentRegisterModal");
@@ -1781,6 +2124,7 @@ applicantsBtn.onclick = function () {
                      form.phone.value = phone;
          
                      modal.style.display = "block";
+                     
                  }
              }
          });
@@ -1792,6 +2136,8 @@ applicantsBtn.onclick = function () {
          document.getElementById("studentRegisterForm").addEventListener("submit", function(e) {  
              e.preventDefault();
              const formData = new FormData(this);
+             const paymentPlan = document.querySelector("input[name=\"embeddedPaymentPlan\"]:checked")?.value || "full";
+             formData.append("payment_plan", paymentPlan); // ✅ Add it to the FormData
              const email = formData.get("email"); // Moved here
              const modal = document.getElementById("studentRegisterModal");
          
@@ -1813,7 +2159,7 @@ applicantsBtn.onclick = function () {
                      }
          
                      //  Always enroll (even if already registered)
-                     enrollStudent(email, currentBatchNo)
+                     enrollStudent(email, currentBatchNo, paymentPlan)
                      .then(() => {
                          alert("✅ Student enrolled successfully!");
                          updateEnrolledCount(currentBatchNo);
@@ -1867,7 +2213,136 @@ applicantsBtn.onclick = function () {
                  alert("⚠️ Enrollment failed: " + errorMessage);
              });
          });
-function enrollStudent(email, batchNo) {
+   
+   
+//display save button in view applicants list after confirm registration fee
+function openStudentModal(studentData) { 
+  const overlay = document.getElementById("modalOverlay");
+  const modal = document.getElementById("studentRegisterModal");
+  const saveBtn = document.getElementById("saveStudentBtn");
+  const checkbox = document.getElementById("embeddedConfirmPaidCheckbox");
+
+  // Clear & reset
+  checkbox.checked = false;
+  saveBtn.style.display = "none";
+
+  // Fill student info
+  document.querySelector("input[name=\"student_name\"]").value = studentData.name;
+  document.querySelector("input[name=\"dob\"]").value = studentData.dob;
+  document.querySelector("input[name=\"email\"]").value = studentData.email;
+  document.querySelector("input[name=\"phone\"]").value = studentData.phone;
+  document.getElementById("readonlyGender").textContent = studentData.gender;
+  document.getElementById("hiddenGenderInput").value = studentData.gender;
+  
+
+  // Load batch info
+  fetchBatchInfo(studentData.batch_no);
+  
+  // Show modal
+  overlay.style.display = "block";
+  modal.style.display = "block";
+}
+
+function fetchBatchInfo(batchNo) {
+  console.log("Fetching batch info for batch_no =", batchNo);
+
+  jQuery.post(studentModalAjax.ajax_url, {
+    action: "get_batch_info",
+    batch_no: batchNo,
+    _ajax_nonce: studentModalAjax.nonce
+  }, function (response) {
+    console.log("AJAX response:", response); // ✅ Add this
+
+    if (response.success) {
+      const batch = response.data;
+
+      document.getElementById("embeddedStudentName").textContent = batch.course_name;
+      document.getElementById("embeddedStudentFee").textContent = "Registration Fee: Rs. " + batch.registration_fee;
+      document.getElementById("embeddedCourseNameText").textContent = "Course: " + batch.course_name;
+      document.getElementById("embeddedBatchNoText").textContent = "Batch No: " + batch.batch_no;
+      document.getElementById("embeddedCourseFeeDisplay").textContent = "Course Fee: Rs. " + batch.course_fee;
+      
+        // ✅ Displayed always
+  document.getElementById("visibleBatchNo").textContent = batch.batch_no;
+  document.getElementById("visibleCourseName").textContent = batch.course_name;
+  document.getElementById("embeddedCourseNameText").textContent = "Course: " + batch.course_name;
+document.getElementById("embeddedBatchNoText").textContent = "Batch No: " + batch.batch_no;
+    } else {
+      alert("Failed to load batch info: " + response.data.message);
+    }
+  });
+}
+
+
+// Enable Save button only when checkbox is checked
+document.addEventListener("DOMContentLoaded", function () {
+  document.getElementById("embeddedConfirmPaidCheckbox").addEventListener("change", function () {
+    document.getElementById("saveStudentBtn").style.display = this.checked ? "inline-block" : "none";
+  });
+
+  document.getElementById("closeStudentModal").addEventListener("click", function () {
+    document.getElementById("studentRegisterModal").style.display = "none";
+    document.getElementById("modalOverlay").style.display = "none";
+  });
+});
+
+// end
+   
+// open register students under viewapplicants list
+document.addEventListener("DOMContentLoaded", function () { 
+  document.addEventListener("click", function (e) {
+    const row = e.target.closest("tr");
+
+    if (
+      row &&
+      row.closest("table") &&
+      row.closest("table").querySelector("thead")
+    ) {
+      // Skip if clicked inside an input/edit field
+      if (
+        e.target.closest("button") ||            // Buttons
+        e.target.closest(".edit-field") ||       // Editable inputs
+        e.target.tagName === "INPUT" ||          // Fallback: direct input click
+        e.target.tagName === "TEXTAREA" ||
+        e.target.tagName === "SELECT"
+      ) {
+        return;
+      }
+
+      // Collect cell text content
+      const cells = row.querySelectorAll("td");
+
+      const name = cells[0]?.querySelector("span")?.textContent.trim();
+      const dob = cells[1]?.querySelector("span")?.textContent.trim();
+      const gender = cells[2]?.querySelector("span")?.textContent.trim();
+      const phone = cells[4]?.querySelector("span")?.textContent.trim();
+      const email = cells[3]?.querySelector("span")?.textContent.trim();
+      
+
+      if (!name || !email) return; // Skip if invalid row
+
+      // Fill modal fields
+      document.querySelector("#studentRegisterModal input[name=\"student_name\"]").value = name;
+      document.querySelector("#studentRegisterModal input[name=\"dob\"]").value = dob;
+      document.querySelector("#readonlyGender").textContent = gender;
+      document.querySelector("#hiddenGenderInput").value = gender;
+      document.querySelector("#studentRegisterModal input[name=\"phone\"]").value = phone;
+      document.querySelector("#studentRegisterModal input[name=\"email\"]").value = email;
+      
+
+      // Show modal
+      document.getElementById("studentRegisterModal").style.display = "block";
+    }
+
+    if (e.target.id === "closeStudentModal") {
+      document.getElementById("studentRegisterModal").style.display = "none";
+    }
+  });
+});
+
+//end 
+
+function enrollStudent(email, batchNo, paymentPlan = "full") {
     return new Promise((resolve, reject) => {
         // First, get current enrolled count
         fetch(ajaxurl, {
@@ -1891,14 +2366,15 @@ function enrollStudent(email, batchNo) {
                 return reject("Batch full");
             }
 
-            //Continue to enroll
+            // Continue to enroll with payment plan
             fetch(ajaxurl, {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: new URLSearchParams({
                     action: "enroll_student_in_course",
                     email: email,
-                    batch_no: batchNo
+                    batch_no: batchNo,
+                    payment_plan: paymentPlan  // ✅ now passed to PHP
                 })
             })
             .then(res => res.json())
@@ -1919,6 +2395,7 @@ function enrollStudent(email, batchNo) {
         });
     });
 }
+
 
 function updateEnrolledCount(batchNo) {
     fetch(ajaxurl, {
@@ -2127,6 +2604,7 @@ document.addEventListener("click", function(e) {
 document.addEventListener("click", function (e) {
   // Handle Edit button click
   if (e.target.closest(".edit-btn")) {
+    e.stopPropagation();
     const row = e.target.closest("tr");
     row.querySelectorAll(".view-field").forEach(el => el.style.display = "none");
     row.querySelectorAll(".edit-field").forEach(el => el.style.display = "inline-block");
@@ -2146,7 +2624,7 @@ document.addEventListener("click", function (e) {
       dob: inputs[1].value,
       gender: inputs[2].value,
       phone: inputs[3].value,
-      email: email
+      email:  inputs[4].value,
     };
 
     fetch(ajaxurl, {
@@ -2167,7 +2645,8 @@ document.addEventListener("click", function (e) {
         spans[0].textContent = updatedData.full_name;
         spans[1].textContent = updatedData.dob;
         spans[2].textContent = updatedData.gender;
-        spans[4].textContent = updatedData.phone; // student_email doesnt change
+        spans[3].textContent = updatedData.phone; 
+        spans[4].textContent = updatedData.email;
 
         // Toggle views back
         row.querySelectorAll(".view-field").forEach(el => el.style.display = "inline-block");
@@ -2269,14 +2748,12 @@ document.getElementById("paymentPlanForm").setAttribute("data-end-date", endDate
 
 
     // Calculate total months between start and end date (inclusive)
-    const startDate = new Date(startDateStr);
-    const endDate = new Date(endDateStr);
-    let totalMonths = (endDate.getFullYear() - startDate.getFullYear()) * 12 +
-                      (endDate.getMonth() - startDate.getMonth()) + 1;
-    if (totalMonths < 1) totalMonths = 1;
+// Fetch course_duration via AJAX based on course name
+fetchCourseDuration(courseName).then(function (courseDuration) {
+  document.getElementById("paymentPlanForm").setAttribute("data-total-months", courseDuration);
+  updateFinalAmount(); // recalculate final amount using duration
+});
 
-    // Store total months in form attribute
-    document.getElementById("paymentPlanForm").setAttribute("data-total-months", totalMonths);
 
     // Show registration modal
     document.getElementById("modalStudentName").textContent = studentName;
@@ -2350,7 +2827,23 @@ function updateFinalAmount() {
   const selectedPlan = document.querySelector("input[name=\"paymentPlan\"]:checked")?.value;
   const totalMonths = parseInt(document.getElementById("paymentPlanForm").getAttribute("data-total-months")) || 1;
 
-  let output = "";
+  const fullSummary = document.getElementById("fullSummary");
+  const monthlySummary = document.getElementById("monthlySummary");
+  const finalAmountDisplay = document.getElementById("finalAmountDisplay");
+
+  // Reset summaries
+  fullSummary.textContent = "";
+  monthlySummary.textContent = "";
+  finalAmountDisplay.textContent = "";
+
+  const discountPercent = 10;
+  const discountAmount = courseFee * (discountPercent / 100);
+  const fullFinal = courseFee - discountAmount;
+  const monthlyAmount = courseFee / totalMonths;
+
+  // Show the summaries above the radio buttons
+  fullSummary.textContent = `Full Payment (10% discount: Rs. ${fullFinal.toFixed(2)})`;
+  monthlySummary.textContent = `Monthly Payment (Rs. ${monthlyAmount.toFixed(2)} x ${totalMonths} months)`;
 
   if (selectedPlan === "full") {
     const discountPercent = 10;
@@ -2359,15 +2852,49 @@ function updateFinalAmount() {
 
     output += `<span style="font-size: 14px; color: #777;">(10% discount applied)</span><br>`;
     output += `<strong>Final Amount: Rs. ${finalAmount.toFixed(2)}</strong>`;
+
+    fullBreakdownEl.textContent = `(10% discount: Rs. ${finalAmount.toFixed(2)})`;
+    monthlyBreakdownEl.textContent = "";
+
   } else if (selectedPlan === "monthly") {
     const monthlyAmount = courseFee / totalMonths;
+
     output += `<strong>Final Amount: Rs. ${monthlyAmount.toFixed(2)}</strong>`;
     output += `<br><span style="font-size: 14px; color: #555;">(Rs. ${monthlyAmount.toFixed(2)} x ${totalMonths} months)</span>`;
+
+    monthlyBreakdownEl.textContent = `(Rs. ${monthlyAmount.toFixed(2)} x ${totalMonths} months)`;
+    fullBreakdownEl.textContent = "";
+
   } else {
     output = "Please select a payment plan.";
+    fullBreakdownEl.textContent = "";
+    monthlyBreakdownEl.textContent = "";
   }
 
   document.getElementById("finalAmountDisplay").innerHTML = output;
+}
+
+function fetchCourseDuration(courseName) {
+  return fetch(ajaxurl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      action: "get_course_duration",
+      course_name: courseName
+    })
+  })
+    .then(function (res) {
+      return res.json();
+    })
+    .then(function (data) {
+      if (data.success && data.data.course_duration > 0) {
+        return data.data.course_duration;
+      }
+      return 1;
+    })
+    .catch(function () {
+      return 1;
+    });
 }
 
 
@@ -2384,28 +2911,138 @@ function enablePaymentPlanSection(enable) {
     input.disabled = !enable;
   });
 }
-document.addEventListener("click", function(e) {
-  if (e.target.classList.contains("enrolled-pagination")) {
-    const page = e.target.getAttribute("data-page");
-    const batchNo = e.target.getAttribute("data-batch");
+document.addEventListener("DOMContentLoaded", function() {
+    const enrolledList = document.getElementById("enrolledList");
 
-    fetch(ajaxurl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        action: "get_enrolled_students_by_batch",
-        batch_no: batchNo,
-        page: page
-      })
-    })
-    .then(res => res.text())
-    .then(html => {
-      document.getElementById("enrolledList").innerHTML = html;
-    })
-    .catch(() => {
-      document.getElementById("enrolledList").innerHTML = "<p style=\'color:red;\'>Failed to load page.</p>";
+    enrolledList.addEventListener("click", function(e) {
+        if (e.target.classList.contains("enrolled-pagination")) {
+            const page = e.target.getAttribute("data-page");
+            const batchNo = e.target.getAttribute("data-batch");
+
+            fetch(ajaxurl, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({
+                    action: "get_enrolled_students_by_batch",
+                    batch_no: batchNo,
+                    page: page
+                })
+            })
+            .then(res => res.text())
+            .then(html => {
+                enrolledList.innerHTML = html;
+
+                // Update active button style manually after replacing content
+                const buttons = enrolledList.querySelectorAll(".enrolled-pagination");
+                buttons.forEach(btn => {
+                    if (btn.getAttribute("data-page") === page) {
+                        btn.classList.add("active");
+                    } else {
+                        btn.classList.remove("active");
+                    }
+                });
+            })
+            .catch(() => {
+                enrolledList.innerHTML = "<p style=\'color:red;\'>Failed to load page.</p>";
+            });
+        }
     });
-  }
+});
+document.addEventListener("DOMContentLoaded", function() {
+  // Click on student row to open modal
+  document.getElementById("enrolledList").addEventListener("click", function(e) {
+    let row = e.target.closest(".student-row");
+    if (!row) return;
+
+    // Populate modal fields
+    document.getElementById("modalStudentId").textContent = row.getAttribute("data-student-id");
+    document.getElementById("modalStudentName").textContent = row.getAttribute("data-student-name");
+    document.getElementById("modalDob").textContent = row.getAttribute("data-dob");
+    document.getElementById("modalGender").textContent = row.getAttribute("data-gender");
+    document.getElementById("modalEmail").textContent = row.getAttribute("data-email");
+    document.getElementById("modalPhone").textContent = row.getAttribute("data-phone");
+
+    // Show modal and overlay
+    document.getElementById("studentDetailsModal").style.display = "block";
+    document.getElementById("modalOverlay").style.display = "block";
+  });
+
+  // Close modal on button click
+  document.getElementById("closeModalBtn").addEventListener("click", function() {
+    document.getElementById("studentDetailsModal").style.display = "none";
+    document.getElementById("modalOverlay").style.display = "none";
+  });
+
+  // Close modal when clicking outside modal (on overlay)
+  document.getElementById("modalOverlay").addEventListener("click", function() {
+    this.style.display = "none";
+    document.getElementById("studentDetailsModal").style.display = "none";
+  });
+});
+document.getElementById("closeModalIcon").addEventListener("click", function() {
+  document.getElementById("studentDetailsModal").style.display = "none";
+  document.getElementById("modalOverlay").style.display = "none";
+});
+
+
+
+document.addEventListener("click", function (e) {
+  const row = e.target.closest(".applicant-row");
+  if (!row) return;
+
+  // Extract data
+  const name = row.dataset.name;
+  const dob = row.dataset.dob;
+  const gender = row.dataset.gender;
+  const email = row.dataset.email;
+  const phone = row.dataset.phone;
+  const batch = row.dataset.batch;
+  const course = row.dataset.course;
+  const courseFee = parseFloat(row.dataset.courseFee || 0);
+  const regFee = parseFloat(row.dataset.registrationFee || 0);
+  const courseDuration = parseInt(row.dataset.courseDuration || 1);
+
+  // Calculations
+  const discountPercent = 10;
+  const fullPayment = courseFee - (courseFee * discountPercent / 100);
+  const monthlyPayment = courseFee / courseDuration;
+
+  // Show modal
+  document.getElementById("modalOverlay").style.display = "block";
+  document.getElementById("studentRegisterModal").style.display = "block";
+
+  // Fill form fields
+  const form = document.getElementById("studentRegisterForm");
+  form.student_name.value = name;
+  form.dob.value = dob;
+  form.email.value = email;
+  form.phone.value = phone;
+  document.getElementById("readonlyGender").textContent = gender;
+  document.getElementById("hiddenGenderInput").value = gender;
+
+  // Fill batch and course details
+  document.getElementById("embeddedStudentName").textContent = name;
+  document.getElementById("visibleBatchNo").textContent = batch;
+  document.getElementById("visibleCourseName").textContent = course;
+  document.getElementById("embeddedStudentFee").textContent = `Registration Fee: Rs. ${regFee.toLocaleString()}`;
+  document.getElementById("embeddedCourseFeeDisplay").textContent = `Course Fee: Rs. ${courseFee.toLocaleString()}`;
+  document.getElementById("embeddedFullSummary").textContent = `Full Payment (10% discount): Rs. ${fullPayment.toFixed(2)}`;
+  document.getElementById("embeddedMonthlySummary").textContent = `Monthly Payment (${courseDuration} months): Rs. ${monthlyPayment.toFixed(2)}`;
+
+  // Reset other elements
+  document.getElementById("embeddedDiscountAmount").value = "";
+  document.getElementById("embeddedFeeStatusText").textContent = "";
+  document.getElementById("embeddedFinalAmountDisplay").textContent = "";
+
+  // Set payment plan to full
+  const fullRadio = document.querySelector("input[name=\"embeddedPaymentPlan\"][value=\"full\"]");
+  if (fullRadio) fullRadio.checked = true;
+});
+
+// Close modal
+document.getElementById("closeStudentModal").addEventListener("click", function () {
+  document.getElementById("modalOverlay").style.display = "none";
+  document.getElementById("studentRegisterModal").style.display = "none";
 });
 
 
@@ -2416,6 +3053,67 @@ document.addEventListener("click", function(e) {
 
     echo '</div>';
 }
+// Enqueue JavaScript with localized variables
+add_action('admin_enqueue_scripts', 'enqueue_student_modal_script');
+function enqueue_student_modal_script() {
+    wp_enqueue_script('student-modal-script', plugin_dir_url(__FILE__) . 'student-modal.js', array('jquery'), null, true);
+    wp_localize_script('student-modal-script', 'studentModalAjax', array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce'    => wp_create_nonce('get_batch_data_nonce')
+    ));
+}
+
+// AJAX handler to get batch info
+add_action('wp_ajax_get_batch_info', 'get_batch_info_callback');
+
+function get_batch_info_callback() {
+    check_ajax_referer('get_batch_data_nonce', '_ajax_nonce'); // ✅ FIXED
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Unauthorized']);
+    }
+
+    global $wpdb;
+    $batch_no = sanitize_text_field($_POST['batch_no']);
+
+    $batch = $wpdb->get_row(
+        $wpdb->prepare("SELECT course_name, registration_fee, course_fee, batch_no FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s", $batch_no)
+    );
+
+    if ($batch) {
+        wp_send_json_success([
+            'course_name' => $batch->course_name,
+            'registration_fee' => $batch->registration_fee,
+            'course_fee' => $batch->course_fee,
+            'batch_no' => $batch->batch_no
+        ]);
+    } else {
+        wp_send_json_error(['message' => 'Batch not found']);
+    }
+}
+
+
+
+add_action('wp_ajax_get_course_duration', 'get_course_duration_by_name');
+add_action('wp_ajax_nopriv_get_course_duration', 'get_course_duration_by_name');
+
+function get_course_duration_by_name() {
+    global $wpdb;
+
+    $course_name = sanitize_text_field($_POST['course_name']);
+    $table = $wpdb->prefix . 'course_enrollments';
+
+    $raw_duration = $wpdb->get_var($wpdb->prepare(
+        "SELECT course_duration FROM $table WHERE course_name = %s LIMIT 1",
+        $course_name
+    ));
+
+    preg_match('/\d+/', $raw_duration, $matches);
+    $duration = isset($matches[0]) ? intval($matches[0]) : 1;
+
+    wp_send_json_success(['course_duration' => $duration]);
+}
+
 add_action('wp_ajax_save_student_modal', 'save_student_modal_handler');
 function save_student_modal_handler() {
     global $wpdb;
@@ -2502,6 +3200,7 @@ function enroll_student_in_course_handler() {
 
     $email = sanitize_email($_POST['email']);
     $batch_no = sanitize_text_field($_POST['batch_no']);
+    $payment_plan = isset($_POST['payment_plan']) ? sanitize_text_field($_POST['payment_plan']) : 'full';
 
     // Get student_id from email
     $student = $wpdb->get_row($wpdb->prepare(
@@ -2542,6 +3241,7 @@ function enroll_student_in_course_handler() {
         'student_id'   => $student_id,
         'course_name'  => $course_name,
         'batch_no'     => $batch_no,
+        'payment_plan' => $payment_plan,
         'enrolled_at'  => current_time('mysql')
     ]);
 
@@ -2617,26 +3317,20 @@ function get_enrolled_students_by_batch_callback() {
     $enrollments_table = $wpdb->prefix . 'students_course_enrollment';
     $students_table = $wpdb->prefix . 'student_registrations';
 
-    // Get total count
-    $total_count = $wpdb->get_var($wpdb->prepare("
-        SELECT COUNT(*) FROM $enrollments_table WHERE batch_no = %s
-    ", $batch_no));
-
+    $total_count = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $enrollments_table WHERE batch_no = %s",
+        $batch_no
+    ));
     $total_pages = ceil($total_count / $per_page);
 
-    // Get paginated data
-    $students = $wpdb->get_results(
-        $wpdb->prepare(
-            "SELECT r.student_name, r.dob, r.gender, r.email, r.phone, r.student_id, e.payment_plan
-             FROM $enrollments_table e
-             INNER JOIN $students_table r 
-             ON BINARY e.student_id = BINARY r.student_id
-             WHERE e.batch_no = %s
-             LIMIT %d OFFSET %d",
-            $batch_no, $per_page, $offset
-        ),
-        ARRAY_A
-    );
+    $students = $wpdb->get_results($wpdb->prepare(
+        "SELECT r.student_name, r.dob, r.gender, r.email, r.phone, r.student_id, e.payment_plan
+         FROM $enrollments_table e
+         INNER JOIN $students_table r ON BINARY e.student_id = BINARY r.student_id
+         WHERE e.batch_no = %s
+         LIMIT %d OFFSET %d",
+        $batch_no, $per_page, $offset
+    ), ARRAY_A);
 
     if (empty($students)) {
         echo "<p>No students enrolled in this batch.</p>";
@@ -2644,23 +3338,18 @@ function get_enrolled_students_by_batch_callback() {
     }
 
     echo "<div style='max-height:500px; overflow:auto;'>
-        <table style='width:100%; border-collapse:collapse;'>
-            <thead>
-                <tr>
-                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Student ID</th>
-                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Student Name</th>
-                    <th style='border-bottom:1px solid #ccc; padding:8px;'>DOB</th>
-                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Gender</th>
-                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Email</th>
-                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Phone</th>
-                    <th style='border-bottom:1px solid #ccc; padding:8px;'>Payment Plan</th>
-                </tr>
-            </thead>
-            <tbody>";
+            <table style='width:100%; border-collapse:collapse; cursor:pointer;'>
+                <thead>
+                    <tr>
+                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Student ID</th>
+                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Student Name</th>
+                        <th style='border-bottom:1px solid #ccc; padding:8px;'>Payment Plan</th>
+                    </tr>
+                </thead>
+                <tbody>";
 
     foreach ($students as $student) {
         $plan = strtolower($student['payment_plan']);
-        $badge = "";
         $commonStyle = "padding: 4px 10px; border-radius: 12px; font-weight: bold; border: 2px solid; display: inline-block;";
         if ($plan === 'full') {
             $badge = "<span style='$commonStyle color: #2e7d32; border-color: #81c784; background-color: #e8f5e9;'>Full</span>";
@@ -2670,30 +3359,37 @@ function get_enrolled_students_by_batch_callback() {
             $badge = "<span style='$commonStyle color: #b71c1c; border-color: #ef9a9a; background-color: #ffebee;'>Other</span>";
         }
 
-        echo "<tr>
+        // Add data attributes for modal
+        echo "<tr class='student-row' 
+                  data-student-id='{$student['student_id']}' 
+                  data-student-name='{$student['student_name']}' 
+                  data-dob='{$student['dob']}' 
+                  data-gender='{$student['gender']}' 
+                  data-email='{$student['email']}' 
+                  data-phone='{$student['phone']}' 
+                  data-payment-plan='{$plan}'>
                 <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['student_id']}</td>
                 <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['student_name']}</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['dob']}</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['gender']}</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['email']}</td>
-                <td style='padding:8px; border-bottom:1px solid #eee;'>{$student['phone']}</td>
                 <td style='padding:8px; border-bottom:1px solid #eee;'>$badge</td>
               </tr>";
     }
 
     echo "</tbody></table></div>";
 
-    // Pagination controls
+    // Pagination buttons (same as before)
     if ($total_pages > 1) {
         echo "<div style='margin-top:10px; text-align:center;'>";
         for ($i = 1; $i <= $total_pages; $i++) {
-            echo "<button class='enrolled-pagination' data-page='$i' data-batch='$batch_no' style='margin: 0 4px; padding: 4px 10px;'>$i</button>";
+            $class = ($i === $page) ? "enrolled-pagination active" : "enrolled-pagination";
+            echo "<button class='$class' data-page='$i' data-batch='$batch_no'>$i</button>";
         }
         echo "</div>";
     }
 
     wp_die();
 }
+
+
 
 add_action('wp_ajax_get_enrolled_student_count', 'get_enrolled_student_count_callback');
 function get_enrolled_student_count_callback() {
@@ -3546,6 +4242,8 @@ function handle_save_batch_data() {
 
 
 //registration form on frontend//
+
+
 
 
 
