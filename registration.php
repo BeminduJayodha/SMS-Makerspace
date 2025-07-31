@@ -105,6 +105,14 @@ add_submenu_page(
     'create-new-batch', // Menu slug (used in admin.php?page=...)
     'create_new_batch_page' // Callback function
 );
+    add_submenu_page(
+        'student-registration',
+        'Payment Details',
+        'Payments',
+        'manage_options',
+        'payment-details',
+        'payment_details_page'
+    );
 
 }
 
@@ -1151,7 +1159,7 @@ foreach ($applicants as $index => $applicant) {
         </td>
 <td style='padding:8px; border-bottom:1px solid #eee; text-align:center;'>
     <div style='display: flex; justify-content: center; gap: 8px;'>
-        <button class='button button-primary enroll-btn' data-id='{$index}' data-email='" . esc_attr($applicant['student_email']) . "'>Enroll</button>
+        
         
         <button class='button edit-btn' data-id='{$index}' style='border:none;'>
             <span class='dashicons dashicons-edit'></span>
@@ -1436,8 +1444,8 @@ echo '
     <p>Applicant list goes here.</p>
   </div>
 
-  <div id="registeredList" style="display:none; margin-top:20px; text-align:left;">
-    <p>Registered student list goes here.</p>
+  <div id="registeredList" margin-top:20px; text-align:left;">
+    <p></p>
   </div>
 </div>
 <style>
@@ -1891,7 +1899,7 @@ button.enroll-registered-btn:disabled {
   <div style="background:#fff; width:400px; margin:10% auto; padding:20px; border-radius:8px; position:relative;">
     <span id="closeRegModal" style="position:absolute; top:10px; right:15px; cursor:pointer; font-size:18px;">&times;</span>
     
-    <h3 id="modalStudentName"></h3>
+    <h3 id="modalStudentNameText"></h3>
      <p id="modalCourseNameText" style="margin: 5px 0;"></p>
     <p id="modalBatchNoText" style="margin: 5px 0;"></p> 
     <p id="modalStudentFee" style="margin: 5px 0;"></p>
@@ -1902,13 +1910,13 @@ button.enroll-registered-btn:disabled {
     <!-- Checkbox replaces Pay button -->
     <label style="margin-top: 10px; display:block;">
       <input type="checkbox" id="confirmRegPaidCheckbox" />
-      I confirm the registration fee is paid 
+      ✅ Paid 
     </label>
 
     <!-- Payment Plan Section -->
     <div id="paymentPlanSection" style="display:block; margin-top: 20px;">
-      <h2><u>Payment Plan</u></h2>
-      <p id="courseFeeDisplay">Course Fee: Rs. 0</p>
+      
+      <h2 id="courseFeeDisplay">Course Fee: Rs. 0</h2>
 
 
       <p id="finalAmountDisplay" style="font-weight:bold; display: none;">Final Amount: Rs. 0</p>
@@ -1979,73 +1987,75 @@ document.addEventListener("DOMContentLoaded", function () {
 
     
 
-    document.querySelectorAll(".wp-list-table tbody tr").forEach(row => {
-        row.addEventListener("click", function () {
-            const batchNo = this.children[1].textContent.trim();
-            const instructor = this.children[2].textContent.trim();
-            const course = this.children[3].textContent.trim();
-            const startDate = this.children[4].textContent.trim();
-            const endDate = this.children[5].textContent.trim();
-            const startTime = this.children[6].textContent.trim();
-            const endTime = this.children[7].textContent.trim();
+document.querySelectorAll(".wp-list-table tbody tr").forEach(row => { 
+  row.addEventListener("click", function () {
+    const batchNo = this.children[1].textContent.trim();
+    const instructor = this.children[2].textContent.trim();
+    const course = this.children[3].textContent.trim();
+    const startDate = this.children[4].textContent.trim();
+    const endDate = this.children[5].textContent.trim();
+    const startTime = this.children[6].textContent.trim();
+    const endTime = this.children[7].textContent.trim();
 
-            currentBatchNo = batchNo;
-            updateEnrolledCount(currentBatchNo);
-            updateApplicantCount(currentBatchNo);
-            document.getElementById("batchTitle").textContent = "Batch No: " + batchNo;
-            document.getElementById("detailCourse").textContent = course;
-            document.getElementById("detailInstructor").textContent = instructor;
-            document.getElementById("detailDateRange").textContent = `${startDate} → ${endDate}`;
-            document.getElementById("detailTimeRange").textContent = `${startTime} - ${endTime}`;
-            document.getElementById("enrolledHeading").style.display = "block";
-            document.getElementById("enrolledList").style.display = "block";
+    currentBatchNo = batchNo;
 
+    // Update modal header/details
+    document.getElementById("batchTitle").textContent = "Batch No: " + batchNo;
+    document.getElementById("detailCourse").textContent = course;
+    document.getElementById("detailInstructor").textContent = instructor;
+    document.getElementById("detailDateRange").textContent = `${startDate} → ${endDate}`;
+    document.getElementById("detailTimeRange").textContent = `${startTime} - ${endTime}`;
 
+    // Show enrolled heading and list containers
+    const enrolledHeading = document.getElementById("enrolledHeading");
+    const enrolledList = document.getElementById("enrolledList");
+    const applicantsList = document.getElementById("applicantsList");
 
+    enrolledHeading.style.display = "block";
+    enrolledList.style.display = "block";
+    applicantsList.style.display = "block";
 
+    // Show loading placeholders
+    applicantsList.innerHTML = "<p>Loading applicants...</p>";
+    enrolledList.innerHTML = "<p>Loading enrolled students...</p>";
+    updateEnrolledCount(currentBatchNo);
 
-           const enrolledList = document.getElementById("enrolledList");
-           const registeredList = document.getElementById("registeredList");
-           
-           // Hide other sections
-           applicantsList.style.display = "none";
-           registeredList.style.display = "none";
-           enrolledList.innerHTML = "<p>Loading enrolled students...</p>";
-           enrolledList.style.display = "block";
-           document.getElementById("enrolledHeading").style.display = "block";
-           
-           // Fetch enrolled students automatically when modal opens
-           fetch(ajaxurl, {
-               method: "POST",
-               headers: { "Content-Type": "application/x-www-form-urlencoded" },
-               body: "action=get_enrolled_students_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
-           })
-           .then(res => res.text())
-           .then(html => {
-               enrolledList.innerHTML = html;
-               // ✅ Reload enrolled list
-                fetch(ajaxurl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: "action=get_enrolled_students_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
-                })
-                .then(res => res.text())
-                .then(html => {
-                    document.getElementById("enrolledList").innerHTML = html;
-                    document.getElementById("enrolledList").style.display = "block";
-                    document.getElementById("enrolledHeading").style.display = "block";
-                });
+    // Fetch applicants
+    fetch(ajaxurl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "action=get_applicants_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
+    })
+    .then(res => res.text())
+    .then(html => {
+      applicantsList.innerHTML = html;
+      updateApplicantCount(currentBatchNo);
+      updateEnrolledCount(currentBatchNo);
+    })
+    .catch(() => {
+      applicantsList.innerHTML = "<p style=\'color:red;\'>Failed to load applicants.</p>";
+    });
 
-           })
-           .catch(() => {
-               enrolledList.innerHTML = "<p style=\'color:red;\'>Failed to load enrolled students.</p>";
-           });
-           
-           // Show modal
-           modal.style.display = "block";
-           
-                   });
-               });
+    // Fetch enrolled students
+    fetch(ajaxurl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "action=get_enrolled_students_by_batch&batch_no=" + encodeURIComponent(currentBatchNo)
+    })
+    .then(res => res.text())
+    .then(html => {
+      enrolledList.innerHTML = html;
+    })
+    .catch(() => {
+      enrolledList.innerHTML = "<p style=\'color:red;\'>Failed to load enrolled students.</p>";
+    });
+
+    // Show modal
+    const modal = document.getElementById("batchModal");
+    modal.style.display = "block";
+  });
+});
+
            
 let isApplicantsVisible = false;
 
@@ -2756,34 +2766,42 @@ fetchCourseDuration(courseName).then(function (courseDuration) {
 
 
     // Show registration modal
-    document.getElementById("modalStudentName").textContent = studentName;
+    document.getElementById("modalStudentNameText").textContent =studentName;
     document.getElementById("modalStudentFee").textContent = `Registration Fee: Rs. ${registrationFee}`;
-    document.getElementById("modalCourseNameText").textContent = "Course Name: " + courseName;
-    document.getElementById("modalBatchNoText").textContent = "Batch No: " + batchNo;
+    document.getElementById("modalCourseNameText").innerHTML = "<strong>Course Name:</strong> " + courseName;
+    document.getElementById("modalBatchNoText").innerHTML = "<strong>Batch No:</strong> " + batchNo;
     document.getElementById("registrationFeeModal").style.display = "block";
 
     // Set course fee
-    document.getElementById("courseFeeDisplay").textContent = `Course Fee: Rs. ${courseFee}`;
+   document.getElementById("courseFeeDisplay").innerHTML = `<strong><u>Course Fee:</u></strong> <span style="font-weight: normal;">(Rs. ${courseFee})</span>`;
     document.getElementById("courseFeeDisplay").setAttribute("data-course-fee", courseFee);
     document.getElementById("finalAmountDisplay").textContent = `Final Amount: Rs. ${courseFee}`;
     document.getElementById("discountAmount").value = "";
     document.getElementById("discountContainer").style.display = "none";
 
     // Handle payment section visibility
+// Inside your existing if-else block for isPaid:
+
+const feeStatusText = document.getElementById("feeStatusText");
+
 if (isPaid) {
-  document.getElementById("feeStatusText").textContent = "✅ Registration fee already paid.";
+  feeStatusText.textContent = "Paid";
+  feeStatusText.style.color = "green";
+
   document.getElementById("confirmRegPaidCheckbox").checked = true;
   document.getElementById("confirmRegPaidCheckbox").disabled = true;
   enablePaymentPlanSection(true);
   document.getElementById("enrollBtn").style.display = "inline-block";
 } else {
-  document.getElementById("feeStatusText").textContent =
-    "Above named student registration fee not paid. Please confirm it to enable payment plan.";
+  feeStatusText.textContent = "Unpaid";
+  feeStatusText.style.color = "red";
+
   document.getElementById("confirmRegPaidCheckbox").checked = false;
   document.getElementById("confirmRegPaidCheckbox").disabled = false;
   enablePaymentPlanSection(false);
   document.getElementById("enrollBtn").style.display = "none";
 }
+
 
 
   }
@@ -4241,7 +4259,359 @@ function handle_save_batch_data() {
 
 
 
-//registration form on frontend//
+function payment_details_page() {
+    global $wpdb;
+
+    $today = date('Y-m-d');
+
+    // Get submitted values or default
+    $from_date = isset($_POST['from_date']) ? $_POST['from_date'] : $today;
+    $to_date = isset($_POST['to_date']) ? $_POST['to_date'] : $today;
+    $selected_course = isset($_POST['course_name']) ? sanitize_text_field($_POST['course_name']) : '';
+
+    // Get unique course names
+    $courses = $wpdb->get_col("SELECT DISTINCT course_name FROM {$wpdb->prefix}students_course_enrollment ORDER BY course_name ASC");
+
+    // Sanitize and prepare SQL
+    $from_date_sql = esc_sql($from_date . ' 00:00:00');
+    $to_date_sql = esc_sql($to_date . ' 23:59:59');
+
+    // Build WHERE clause
+    $where = "WHERE e.enrolled_at BETWEEN '{$from_date_sql}' AND '{$to_date_sql}'";
+    if (!empty($selected_course)) {
+        $where .= $wpdb->prepare(" AND e.course_name = %s", $selected_course);
+    }
+
+    // Query filtered data
+    $records = $wpdb->get_results("
+        SELECT e.*, r.student_name 
+        FROM {$wpdb->prefix}students_course_enrollment e
+        LEFT JOIN {$wpdb->prefix}student_registrations r 
+        ON e.student_id = r.student_id
+        $where
+    ");
+
+    // Update amount column with course_fee for each record
+    foreach ($records as $record) {
+        $course_fee = $wpdb->get_var( $wpdb->prepare(
+            "SELECT course_fee FROM {$wpdb->prefix}course_enrollments WHERE course_name = %s LIMIT 1",
+            $record->course_name
+        ));
+
+        if ($course_fee !== null) {
+            $wpdb->update(
+                "{$wpdb->prefix}students_course_enrollment",
+                ['amount' => $course_fee], // data to update
+                ['id' => $record->id],     // where clause
+                ['%f'],                   // data format
+                ['%d']                    // where format
+            );
+            // Also update the amount property so display is immediate without refetch
+            $record->amount = $course_fee;
+        }
+    }
+
+    echo '<h2>Payment Details</h2>';
+
+    // Filter Form
+    echo '<form method="post" style="margin-bottom: 20px;">
+            <label><strong>From Date:</strong> 
+                <input type="date" name="from_date" value="' . esc_attr($from_date) . '" onchange="this.form.submit()">
+            </label>
+            &nbsp;&nbsp;
+            <label><strong>To Date:</strong> 
+                <input type="date" name="to_date" value="' . esc_attr($to_date) . '" onchange="this.form.submit()">
+            </label>
+            &nbsp;&nbsp;
+            <label><strong>Course:</strong> 
+                <select name="course_name" onchange="this.form.submit()">
+                    <option value="">All Courses</option>';
+                    foreach ($courses as $course) {
+                        $selected = ($course == $selected_course) ? 'selected' : '';
+                        echo '<option value="' . esc_attr($course) . '" ' . $selected . '>' . esc_html($course) . '</option>';
+                    }
+    echo       '</select>
+            </label>
+        </form>';
+
+    if (empty($records)) {
+        echo '<h3>No payment records found for selected filters.</h3>';
+        return;
+    }
+
+    // Styles
+    echo '<style>
+        .invoices-table {
+            border-collapse: collapse;
+            width: 100%;
+            border: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .invoices-table thead th {
+            font-weight: bold;
+            background-color: #dedede;
+            border: 1px solid #ccc;
+            text-align: center;
+            padding: 8px;
+        }
+        .invoices-table tbody td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        .invoices-table tbody tr:nth-child(odd) {
+            background-color: #ffffff;
+        }
+        .invoices-table tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 5px;
+            color: #fff;
+            font-weight: bold;
+        }
+        .status-paid { background-color: #4CAF50; }
+        .status-pending { background-color: #FF9800; }
+    </style>';
+
+    echo '
+    <!-- View Report Button -->
+    <button id="openReportModal" class="button button-secondary" style="margin-bottom: 20px;">View Report</button>
+
+    <!-- Modal -->
+    <div id="reportModal" class="report-modal-overlay">
+      <div class="report-modal-content" style="width: 90%; max-width: 1100px;">
+        <span class="close-modal" id="closeReportModal">&times;</span>
+        <h2>Full Report</h2>
+
+        <!-- Report Table -->
+        <div id="reportContent" style="max-height: 500px; overflow-y: auto; margin-top: 20px;">
+            <table class="invoices-table">
+                <thead>
+                    <tr>
+                        <th>Student ID</th>
+                        <th>Student Name</th>
+                        <th>Course Name</th>
+                        <th>Batch No</th>
+                        <th>Course Fee</th>
+                        <th>Payment Status</th>
+                        <th>Payment Date</th>
+                    </tr>
+                </thead>
+                <tbody>';
+
+    foreach ($records as $record) {
+        $student_name = $record->student_name ? $record->student_name : 'Unknown';
+        $payment_plan = strtolower(trim($record->payment_plan));
+
+        if ($payment_plan === 'full') {
+            $status_text = 'Paid';
+            $status_class = 'status-paid';
+        } elseif ($payment_plan === 'monthly') {
+            $status_text = 'Pending';
+            $status_class = 'status-pending';
+        } else {
+            $status_text = 'Unknown';
+            $status_class = 'status-pending';
+        }
+
+        $payment_date = !empty($record->enrolled_at) ? date("F j, Y", strtotime($record->enrolled_at)) : '—';
+
+        echo '<tr>';
+        echo '<td>' . esc_html($record->student_id) . '</td>';
+        echo '<td>' . esc_html($student_name) . '</td>';
+        echo '<td>' . esc_html($record->course_name) . '</td>';
+        echo '<td>' . esc_html($record->batch_no) . '</td>';
+        echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
+        echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
+        echo '<td>' . esc_html($payment_date) . '</td>';
+        echo '</tr>';
+    }
+
+    echo '</tbody>
+            </table>
+        </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+        <!-- Report Actions -->
+        <div style="margin-top: 30px; text-align:center;">
+            <button onclick="window.print();" class="button button-primary">🖨️ Print</button>
+            <button onclick="openEmail()" class="button">📧 Email</button>
+            <button onclick="downloadPDF();" class="button">📄PDF</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    function printModalReport() {
+        var printContents = document.getElementById("reportContent").innerHTML;
+        var originalContents = document.body.innerHTML;
+
+        document.body.innerHTML = "<html><head><title>Report</title></head><body>" + printContents + "</body></html>";
+        window.print();
+        document.body.innerHTML = originalContents;
+        location.reload(); // refresh after print to restore content
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      const openBtn = document.getElementById("openReportModal");
+      const modal = document.getElementById("reportModal");
+      const closeBtn = document.getElementById("closeReportModal");
+
+      openBtn.addEventListener("click", function () {
+        modal.style.display = "block";
+      });
+
+      closeBtn.addEventListener("click", function () {
+        modal.style.display = "none";
+      });
+
+      window.addEventListener("click", function (e) {
+        if (e.target == modal) {
+          modal.style.display = "none";
+        }
+      });
+    });
+    function downloadPDF() {
+        const element = document.getElementById("reportContent");
+
+        const opt = {
+            margin:       0.3,
+            filename:     "payment_report.pdf",
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: "in", format: "a4", orientation: "landscape" }
+        };
+
+        html2pdf().set(opt).from(element).save();
+    }
+    function openEmail() {
+        const subject = encodeURIComponent("Payment Report");
+        const body = encodeURIComponent("Hi,\\n\\nPlease find the payment report details below:\\n\\n[Add summary or instructions here]\\n\\nThanks,\\nAdmin");
+
+        // Open the default email client
+        window.location.href = "mailto:?subject=" + subject + "&body=" + body;
+    }
+    </script>
+    ';
+
+    echo '
+    <style>
+    .report-modal-overlay {
+      display: none;
+      position: fixed;
+      z-index: 9999;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.4);
+    }
+
+    .report-modal-content {
+      background-color: #fff;
+      margin: 10% auto;
+      padding: 30px;
+      border: 1px solid #888;
+      width: 400px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+      position: relative;
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .close-modal {
+      color: #aaa;
+      position: absolute;
+      right: 15px;
+      top: 10px;
+      font-size: 24px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .close-modal:hover {
+      color: #000;
+    }
+    </style>
+    ';
+    echo '
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const openBtn = document.getElementById("openReportModal");
+      const modal = document.getElementById("reportModal");
+      const closeBtn = document.getElementById("closeReportModal");
+
+      openBtn.addEventListener("click", function () {
+        modal.style.display = "block";
+      });
+
+      closeBtn.addEventListener("click", function () {
+        modal.style.display = "none";
+      });
+
+      window.addEventListener("click", function (e) {
+        if (e.target == modal) {
+          modal.style.display = "none";
+        }
+      });
+    });
+    </script>
+    ';
+
+    // Table Header
+    echo '<table class="invoices-table">';
+    echo '<thead>
+            <tr>
+                <th>Student ID</th>
+                <th>Student Name</th>
+                <th>Course Name</th>
+                <th>Batch No</th>
+                <th>Course Fee</th>
+                <th>Payment Status</th>
+                <th>Payment Date</th>
+            </tr>
+        </thead>
+        <tbody>';
+
+    // Loop records
+    foreach ($records as $record) {
+        $student_name = $record->student_name ? $record->student_name : 'Unknown';
+
+        $payment_plan = strtolower(trim($record->payment_plan));
+        if ($payment_plan === 'full') {
+            $status_text = 'Paid';
+            $status_class = 'status-paid';
+        } elseif ($payment_plan === 'monthly') {
+            $status_text = 'Pending';
+            $status_class = 'status-pending';
+        } else {
+            $status_text = 'Unknown';
+            $status_class = 'status-pending';
+        }
+
+        $payment_date = !empty($record->enrolled_at) 
+            ? date("F j, Y", strtotime($record->enrolled_at)) 
+            : '—';
+
+        echo '<tr>';
+        echo '<td>' . esc_html($record->student_id) . '</td>';
+        echo '<td>' . esc_html($student_name) . '</td>';
+        echo '<td>' . esc_html($record->course_name) . '</td>';
+        echo '<td>' . esc_html($record->batch_no) . '</td>';
+        echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
+        echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
+        echo '<td>' . esc_html($payment_date) . '</td>';
+        echo '</tr>';
+    }
+
+    echo '</tbody></table>';
+}
+
+
+
+
+
 
 
 
