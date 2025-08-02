@@ -3204,18 +3204,17 @@ function create_students_course_enrollment_table() {
     $charset_collate = $wpdb->get_charset_collate();
 
     $sql = "CREATE TABLE $table_name (
-        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
         student_id VARCHAR(12) NOT NULL,
         course_name VARCHAR(255) NOT NULL,
         batch_no VARCHAR(50) DEFAULT NULL,
         enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY student_course (student_id, course_name)
+        PRIMARY KEY (student_id, course_name)
     ) $charset_collate;";
 
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
 }
+
 
 register_deactivation_hook(__FILE__, 'delete_students_course_enrollment_table');
 function delete_students_course_enrollment_table() {
@@ -3297,16 +3296,15 @@ add_action('wp_ajax_enroll_registered_student', 'handle_enroll_registered_studen
 function handle_enroll_registered_student() {
     global $wpdb;
 
-    $student_id   = intval($_POST['student_id']);
-    $payment_plan = sanitize_text_field($_POST['payment_plan']);
-    $batch_no     = sanitize_text_field($_POST['batch_no']);
-    $course_name  = sanitize_text_field($_POST['course_name']);
-$monthly_amount = $payment_plan === 'monthly' ? floatval($_POST['monthly_amount']) : 0;
-$full_amount = $payment_plan === 'full' ? floatval($_POST['full_amount']) : 0;
-$pending_months = $payment_plan === 'monthly' ? intval($_POST['pending_months']) : 0;
+    $student_id     = intval($_POST['student_id']);
+    $payment_plan   = sanitize_text_field($_POST['payment_plan']);
+    $batch_no       = sanitize_text_field($_POST['batch_no']);
+    $course_name    = sanitize_text_field($_POST['course_name']);
+    $monthly_amount = $payment_plan === 'monthly' ? floatval($_POST['monthly_amount']) : 0;
+    $full_amount    = $payment_plan === 'full' ? floatval($_POST['full_amount']) : 0;
+    $pending_months = $payment_plan === 'monthly' ? intval($_POST['pending_months']) : 0;
 
-
-    // Optional fallback if course_name is missing
+    // Optional fallback
     if (empty($course_name)) {
         $course_name = $wpdb->get_var($wpdb->prepare(
             "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s",
@@ -3314,30 +3312,58 @@ $pending_months = $payment_plan === 'monthly' ? intval($_POST['pending_months'])
         ));
     }
 
-    $table = $wpdb->prefix . 'students_course_enrollment';
+    $enrollment_data = [
+        'student_id'     => $student_id,
+        'payment_plan'   => $payment_plan,
+        'batch_no'       => $batch_no,
+        'course_name'    => $course_name,
+        'monthly_amount' => $monthly_amount,
+        'full_amount'    => $full_amount,
+        'pending_months' => $pending_months,
+        'enrolled_at'    => current_time('mysql')
+    ];
 
-$data = [
-    'student_id'      => $student_id,
-    'payment_plan'    => $payment_plan,
-    'batch_no'        => $batch_no,
-    'course_name'     => $course_name,
-    'monthly_amount'  => $monthly_amount,
-    'full_amount'     => $full_amount,
-    'pending_months'  => $pending_months,
-    'enrolled_at'     => current_time('mysql')
-];
+    $enrollment_format = ['%d', '%s', '%s', '%s', '%f', '%f', '%d', '%s'];
+    $main_table = $wpdb->prefix . 'students_course_enrollment';
+    $insert_main = $wpdb->insert($main_table, $enrollment_data, $enrollment_format);
 
-$format = ['%d', '%s', '%s', '%s', '%f', '%f', '%d', '%s'];
+    // Insert into full or monthly table
+    if ($insert_main) {
+        $enrolled_at = current_time('mysql');
 
+        if ($payment_plan === 'full') {
+            $wpdb->insert(
+                $wpdb->prefix . 'students_full_payments',
+                [
+                    'student_id'   => $student_id,
+                    'batch_no'     => $batch_no,
+                    'payment_plan' => $payment_plan,
+                    'full_amount'  => $full_amount,
+                    'enrolled_at'  => $enrolled_at
+                ],
+                ['%d', '%s', '%s', '%f', '%s']
+            );
+        } elseif ($payment_plan === 'monthly') {
+            $wpdb->insert(
+                $wpdb->prefix . 'students_monthly_payments',
+                [
+                    'student_id'     => $student_id,
+                    'batch_no'       => $batch_no,
+                    'payment_plan'   => $payment_plan,
+                    'monthly_amount' => $monthly_amount,
+                    'pending_months' => $pending_months,
+                    'enrolled_at'    => $enrolled_at
+                ],
+                ['%d', '%s', '%s', '%f', '%d', '%s']
+            );
+        }
 
-    $inserted = $wpdb->insert($table, $data, $format);
-
-    if ($inserted) {
         wp_send_json_success(['student_id' => $student_id]);
     } else {
         wp_send_json_error("❌ Failed to enroll student: " . $wpdb->last_error);
     }
 }
+
 
 
 add_action('wp_ajax_get_enrolled_students_by_batch', 'get_enrolled_students_by_batch_callback');
@@ -4371,19 +4397,15 @@ function render_payment_report_by_status($status_filter = 'all') {
             $record->amount = $course_fee;
         }
 
-        // Also get monthly amount for due calculation
         $record->monthly_amount = $wpdb->get_var($wpdb->prepare(
             "SELECT monthly_amount FROM {$wpdb->prefix}students_course_enrollment WHERE id = %d",
             $record->id
         ));
 
-        // Calculate due amount (protect against negatives)
         $record->due_amount = max(0, $record->amount - $record->monthly_amount);
     }
 
-    echo '<h2>';
-    echo ($status_filter === 'paid') ? 'Paid Payments' : (($status_filter === 'pending') ? 'Pending Payments' : 'All Payments');
-    echo '</h2>';
+    echo '<h2>' . ($status_filter === 'paid' ? 'Paid Payments' : ($status_filter === 'pending' ? 'Pending Payments' : 'All Payments')) . '</h2>';
 
     echo '<form method="post" style="margin-bottom: 20px;">
         <label><strong>From Date:</strong> 
@@ -4402,6 +4424,9 @@ function render_payment_report_by_status($status_filter = 'all') {
     }
 
     echo '</select></label></form>';
+// View Report Button (above table)
+echo '<button id="openReportModal" class="button button-secondary" style="margin-bottom: 20px;">View Report</button>';
+
 
     if (empty($records)) {
         echo '<h3>No records found for the selected filters.</h3>';
@@ -4439,29 +4464,24 @@ function render_payment_report_by_status($status_filter = 'all') {
     .status-pending { background-color: #FF9800; }
     </style>';
 
-echo '<table class="invoices-table"><thead>
+    echo '<table class="invoices-table"><thead>
     <tr>
         <th>Student ID</th>
         <th>Student Name</th>
         <th>Course Name</th>
         <th>Batch No</th>
         <th>Course Fee</th>';
-        
-if ($status_filter === 'pending') {
-    echo '<th>Paid Amount</th>';
-    echo '<th>Due Amount</th>';
-}
 
-echo '<th>Payment Status</th>
-      <th>Payment Date</th>
-    </tr></thead><tbody>';
+    if ($status_filter === 'pending') {
+        echo '<th>Paid Amount</th><th>Due Amount</th>';
+    }
 
+    echo '<th>Payment Status</th><th>Payment Date</th></tr></thead><tbody>';
 
     foreach ($records as $record) {
         $student_name = $record->student_name ?: 'Unknown';
         $payment_plan = strtolower(trim($record->payment_plan));
 
-        // Only show paid/pending rows depending on filter
         if (
             ($status_filter === 'paid' && $payment_plan !== 'full') ||
             ($status_filter === 'pending' && $payment_plan !== 'monthly')
@@ -4478,12 +4498,12 @@ echo '<th>Payment Status</th>
         echo '<td>' . esc_html($student_name) . '</td>';
         echo '<td>' . esc_html($record->course_name) . '</td>';
         echo '<td>' . esc_html($record->batch_no) . '</td>';
-echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
+        echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
 
-if ($status_filter === 'pending') {
-    echo '<td>Rs. ' . number_format((float)$record->monthly_amount, 2) . '</td>';
-    echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
-}
+        if ($status_filter === 'pending') {
+            echo '<td>Rs. ' . number_format((float)$record->monthly_amount, 2) . '</td>';
+            echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
+        }
 
         echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
         echo '<td>' . esc_html($payment_date) . '</td>';
@@ -4491,7 +4511,153 @@ if ($status_filter === 'pending') {
     }
 
     echo '</tbody></table>';
+
+    // VIEW REPORT SECTION
+    ?>
+   
+
+    <div id="reportModal" class="report-modal-overlay">
+        <div class="report-modal-content" style="width: 90%; max-width: 1100px;">
+            <span class="close-modal" id="closeReportModal">&times;</span>
+            <h2>Full Report</h2>
+            <div id="reportContent" style="max-height: 500px; overflow-y: auto; margin-top: 20px;">
+                <table class="invoices-table">
+                    <thead>
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Course Name</th>
+                            <th>Batch No</th>
+                            <th>Course Fee</th>
+                            <?php if ($status_filter === 'pending') { echo '<th>Paid Amount</th><th>Due Amount</th>'; } ?>
+                            <th>Payment Status</th>
+                            <th>Payment Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php
+                        foreach ($records as $record) {
+                            $student_name = $record->student_name ?: 'Unknown';
+                            $payment_plan = strtolower(trim($record->payment_plan));
+
+                            if (
+                                ($status_filter === 'paid' && $payment_plan !== 'full') ||
+                                ($status_filter === 'pending' && $payment_plan !== 'monthly')
+                            ) {
+                                continue;
+                            }
+
+                            $status_text = ($payment_plan === 'full') ? 'Paid' : 'Pending';
+                            $status_class = ($payment_plan === 'full') ? 'status-paid' : 'status-pending';
+                            $payment_date = !empty($record->enrolled_at) ? date("F j, Y", strtotime($record->enrolled_at)) : '—';
+
+                            echo '<tr>';
+                            echo '<td>' . esc_html($record->student_id) . '</td>';
+                            echo '<td>' . esc_html($student_name) . '</td>';
+                            echo '<td>' . esc_html($record->course_name) . '</td>';
+                            echo '<td>' . esc_html($record->batch_no) . '</td>';
+                            echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
+
+                            if ($status_filter === 'pending') {
+                                echo '<td>Rs. ' . number_format((float)$record->monthly_amount, 2) . '</td>';
+                                echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
+                            }
+
+                            echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
+                            echo '<td>' . esc_html($payment_date) . '</td>';
+                            echo '</tr>';
+                        }
+                        ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+            <div style="margin-top: 30px; text-align:center;">
+                <button onclick="window.print();" class="button button-primary">🖨️ Print</button>
+                <button onclick="openEmail()" class="button">📧 Email</button>
+                <button onclick="downloadPDF();" class="button">📄 PDF</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+    .report-modal-overlay {
+        display: none;
+        position: fixed;
+        z-index: 9999;
+        left: 0; top: 0;
+        width: 100%; height: 100%;
+        background-color: rgba(0,0,0,0.4);
+    }
+    .report-modal-content {
+        background-color: #fff;
+        margin: 5% auto;
+        padding: 30px;
+        border: 1px solid #888;
+        width: 90%;
+        max-width: 1100px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        position: relative;
+        border-radius: 6px;
+    }
+    .close-modal {
+        color: #aaa;
+        position: absolute;
+        right: 15px;
+        top: 10px;
+        font-size: 24px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+    .close-modal:hover {
+        color: #000;
+    }
+    </style>
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const openBtn = document.getElementById("openReportModal");
+        const modal = document.getElementById("reportModal");
+        const closeBtn = document.getElementById("closeReportModal");
+
+        openBtn.addEventListener("click", function () {
+            modal.style.display = "block";
+        });
+
+        closeBtn.addEventListener("click", function () {
+            modal.style.display = "none";
+        });
+
+        window.addEventListener("click", function (e) {
+            if (e.target == modal) {
+                modal.style.display = "none";
+            }
+        });
+    });
+
+    function downloadPDF() {
+        const element = document.getElementById("reportContent");
+
+        const opt = {
+            margin: 0.3,
+            filename: "payment_report.pdf",
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: "in", format: "a4", orientation: "landscape" }
+        };
+
+        html2pdf().set(opt).from(element).save();
+    }
+
+    function openEmail() {
+        const subject = encodeURIComponent("Payment Report");
+        const body = encodeURIComponent("Hi,%0A%0AFind the payment report details below.%0A%0A[Insert report summary here]%0A%0ARegards,%0AAdmin");
+        window.location.href = "mailto:?subject=" + subject + "&body=" + body;
+    }
+    </script>
+    <?php
 }
+
 
 
 
