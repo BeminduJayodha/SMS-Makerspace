@@ -4356,7 +4356,7 @@ function payment_details_pending_page() {
     render_payment_report_by_status('pending');
 }
 
-function render_payment_report_by_status($status_filter = 'all') {
+function render_payment_report_by_status($status_filter = 'all') { 
     global $wpdb;
 
     $today = date('Y-m-d');
@@ -4383,6 +4383,7 @@ function render_payment_report_by_status($status_filter = 'all') {
     ");
 
     foreach ($records as $record) {
+        // Get course fee and update if needed
         $course_fee = $wpdb->get_var($wpdb->prepare(
             "SELECT course_fee FROM {$wpdb->prefix}course_enrollments WHERE course_name = %s LIMIT 1",
             $record->course_name
@@ -4397,12 +4398,37 @@ function render_payment_report_by_status($status_filter = 'all') {
             $record->amount = $course_fee;
         }
 
-        $record->monthly_amount = $wpdb->get_var($wpdb->prepare(
-            "SELECT monthly_amount FROM {$wpdb->prefix}students_course_enrollment WHERE id = %d",
-            $record->id
+        // Sum paid monthly amounts for this student & batch
+        $record->paid_amount = $wpdb->get_var($wpdb->prepare(
+            "SELECT SUM(monthly_amount) FROM {$wpdb->prefix}students_monthly_payments 
+             WHERE student_id = %s AND batch_no = %s",
+            $record->student_id, $record->batch_no
         ));
+        $record->paid_amount = $record->paid_amount ? floatval($record->paid_amount) : 0;
 
-        $record->due_amount = max(0, $record->amount - $record->monthly_amount);
+        $record->due_amount = max(0, $record->amount - $record->paid_amount);
+
+        // Get pending months string (latest record)
+        $record->pending_months = $wpdb->get_var($wpdb->prepare(
+            "SELECT pending_months FROM {$wpdb->prefix}students_monthly_payments 
+             WHERE student_id = %s",
+            $record->student_id
+        ));
+            // 5. Prepare Installments Breakdown
+        $monthly_amount = 0;
+        $monthly_amount = ($record->amount > 0) ? round($record->amount / 6) : 0;
+        $paid_count = ($monthly_amount > 0) ? floor($record->paid_amount / $monthly_amount) : 0;
+        $total_months = $record->pending_months ? intval($record->pending_months) + $paid_count : 6;
+
+$record->installment_lines = '';
+for ($i = 1; $i <= $total_months; $i++) {
+    if ($i <= $paid_count) {
+        $record->installment_lines .= '<div class="installment done">' . $i . ' ✓</div>';
+    } else {
+        $record->installment_lines .= '<div class="installment pending">' . $i . ' X</div>';
+    }
+}
+
     }
 
     echo '<h2>' . ($status_filter === 'paid' ? 'Paid Payments' : ($status_filter === 'pending' ? 'Pending Payments' : 'All Payments')) . '</h2>';
@@ -4424,9 +4450,9 @@ function render_payment_report_by_status($status_filter = 'all') {
     }
 
     echo '</select></label></form>';
-// View Report Button (above table)
-echo '<button id="openReportModal" class="button button-secondary" style="margin-bottom: 20px;">View Report</button>';
 
+    // View Report Button (above table)
+    echo '<button id="openReportModal" class="button button-secondary" style="margin-bottom: 20px;">View Report</button>';
 
     if (empty($records)) {
         echo '<h3>No records found for the selected filters.</h3>';
@@ -4462,21 +4488,46 @@ echo '<button id="openReportModal" class="button button-secondary" style="margin
     }
     .status-paid { background-color: #4CAF50; }
     .status-pending { background-color: #FF9800; }
+    .installment {
+    display: block;        /* Changed from inline-block to block for vertical stacking */
+    margin: 3px 0;         /* margin top & bottom for spacing between lines */
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    width: fit-content;
+}
+.installment.done {
+    background-color: #e0f8e0;
+    color: #1b8c1b;
+    border-color: #1b8c1b;
+}
+.installment.pending {
+    background-color: #fff3e0;
+    color: #d17c00;
+    border-color: #d17c00;
+}
+
     </style>';
 
-    echo '<table class="invoices-table"><thead>
-    <tr>
-        <th>Student ID</th>
-        <th>Student Name</th>
-        <th>Course Name</th>
-        <th>Batch No</th>
-        <th>Course Fee</th>';
+echo '<table class="invoices-table"><thead><tr>
+    <th>Student ID</th>
+    <th>Student Name</th>
+    <th>Course Name</th>
+    <th>Batch No</th>
+    <th>Course Fee</th>';
+    
+if ($status_filter === 'pending') {
+    echo '<th>Paid Amount</th>
+          <th>Due Amount</th>
+          <th>Installments</th>';
+}
 
-    if ($status_filter === 'pending') {
-        echo '<th>Paid Amount</th><th>Due Amount</th>';
-    }
+echo '<th>Payment Status</th>
+      <th>Payment Date</th>
+</tr></thead><tbody>';
 
-    echo '<th>Payment Status</th><th>Payment Date</th></tr></thead><tbody>';
 
     foreach ($records as $record) {
         $student_name = $record->student_name ?: 'Unknown';
@@ -4499,10 +4550,10 @@ echo '<button id="openReportModal" class="button button-secondary" style="margin
         echo '<td>' . esc_html($record->course_name) . '</td>';
         echo '<td>' . esc_html($record->batch_no) . '</td>';
         echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
-
         if ($status_filter === 'pending') {
-            echo '<td>Rs. ' . number_format((float)$record->monthly_amount, 2) . '</td>';
+            echo '<td>Rs. ' . number_format((float)$record->paid_amount, 2) . '</td>';
             echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
+            echo '<td style="text-align:left;">' . $record->installment_lines . '</td>';
         }
 
         echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
@@ -4529,7 +4580,12 @@ echo '<button id="openReportModal" class="button button-secondary" style="margin
                             <th>Course Name</th>
                             <th>Batch No</th>
                             <th>Course Fee</th>
-                            <?php if ($status_filter === 'pending') { echo '<th>Paid Amount</th><th>Due Amount</th>'; } ?>
+                            <?php if ($status_filter === 'pending') : ?>
+                                <th>Paid Amount</th>
+                                <th>Due Amount</th>
+                                <th>Pending Installments</th>
+                            <?php endif; ?>
+
                             <th>Payment Status</th>
                             <th>Payment Date</th>
                         </tr>
@@ -4557,12 +4613,11 @@ echo '<button id="openReportModal" class="button button-secondary" style="margin
                             echo '<td>' . esc_html($record->course_name) . '</td>';
                             echo '<td>' . esc_html($record->batch_no) . '</td>';
                             echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
-
-                            if ($status_filter === 'pending') {
-                                echo '<td>Rs. ' . number_format((float)$record->monthly_amount, 2) . '</td>';
-                                echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
-                            }
-
+        if ($status_filter === 'pending') {
+            echo '<td>Rs. ' . number_format((float)$record->paid_amount, 2) . '</td>';
+            echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
+            echo '<td style="text-align:left;">' . $record->installment_lines . '</td>';
+        }
                             echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
                             echo '<td>' . esc_html($payment_date) . '</td>';
                             echo '</tr>';
@@ -4657,6 +4712,7 @@ echo '<button id="openReportModal" class="button button-secondary" style="margin
     </script>
     <?php
 }
+
 
 
 
