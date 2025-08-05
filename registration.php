@@ -3312,56 +3312,86 @@ function handle_enroll_registered_student() {
         ));
     }
 
+    // Get course_duration from wp_course_enrollments
+    $course_duration = $wpdb->get_var($wpdb->prepare(
+        "SELECT course_duration FROM {$wpdb->prefix}course_enrollments WHERE course_name = %s",
+        $course_name
+    ));
+    
     $enrollment_data = [
-        'student_id'     => $student_id,
-        'payment_plan'   => $payment_plan,
-        'batch_no'       => $batch_no,
-        'course_name'    => $course_name,
-        'monthly_amount' => $monthly_amount,
-        'full_amount'    => $full_amount,
-        'pending_months' => $pending_months,
-        'enrolled_at'    => current_time('mysql')
+        'student_id'      => $student_id,
+        'payment_plan'    => $payment_plan,
+        'batch_no'        => $batch_no,
+        'course_name'     => $course_name,
+        'monthly_amount'  => $monthly_amount,
+        'full_amount'     => $full_amount,
+        'pending_months'  => $pending_months,
+        'course_duration' => $course_duration,
+        'enrolled_at'     => current_time('mysql')
     ];
-
-    $enrollment_format = ['%d', '%s', '%s', '%s', '%f', '%f', '%d', '%s'];
+    
+    $enrollment_format = ['%d', '%s', '%s', '%s', '%f', '%f', '%d', '%d', '%s'];
     $main_table = $wpdb->prefix . 'students_course_enrollment';
     $insert_main = $wpdb->insert($main_table, $enrollment_data, $enrollment_format);
 
-    // Insert into full or monthly table
-    if ($insert_main) {
-        $enrolled_at = current_time('mysql');
 
-        if ($payment_plan === 'full') {
+    // Insert into full or monthly table
+if ($insert_main) {
+    $enrolled_at = current_time('mysql');
+
+    if ($payment_plan === 'full') {
+        $wpdb->insert(
+            $wpdb->prefix . 'students_full_payments',
+            [
+                'student_id'   => $student_id,
+                'batch_no'     => $batch_no,
+                'payment_plan' => $payment_plan,
+                'full_amount'  => $full_amount,
+                'enrolled_at'  => $enrolled_at
+            ],
+            ['%d', '%s', '%s', '%f', '%s']
+        );
+
+    } elseif ($payment_plan === 'monthly') {
+        // Insert monthly payment record
+        $wpdb->insert(
+            $wpdb->prefix . 'students_monthly_payments',
+            [
+                'student_id'     => $student_id,
+                'batch_no'       => $batch_no,
+                'payment_plan'   => $payment_plan,
+                'monthly_amount' => $monthly_amount,
+                'pending_months' => $pending_months,
+                'enrolled_at'    => $enrolled_at
+            ],
+            ['%d', '%s', '%s', '%f', '%d', '%s']
+        );
+
+        // ✅ Insert Installment Rows Based on course_duration
+        $installment_table = $wpdb->prefix . 'student_installments';
+
+        for ($i = 1; $i <= intval($course_duration); $i++) {
             $wpdb->insert(
-                $wpdb->prefix . 'students_full_payments',
-                [
-                    'student_id'   => $student_id,
-                    'batch_no'     => $batch_no,
-                    'payment_plan' => $payment_plan,
-                    'full_amount'  => $full_amount,
-                    'enrolled_at'  => $enrolled_at
-                ],
-                ['%d', '%s', '%s', '%f', '%s']
-            );
-        } elseif ($payment_plan === 'monthly') {
-            $wpdb->insert(
-                $wpdb->prefix . 'students_monthly_payments',
+                $installment_table,
                 [
                     'student_id'     => $student_id,
                     'batch_no'       => $batch_no,
-                    'payment_plan'   => $payment_plan,
-                    'monthly_amount' => $monthly_amount,
-                    'pending_months' => $pending_months,
-                    'enrolled_at'    => $enrolled_at
+                    'installment_no' => $i,
+                    'installment_amount'=> $monthly_amount,
+                    'paid'           => ($i === 1 ? 1 : 0), // ✅ first = paid
+                    'created_at'     => $enrolled_at
                 ],
-                ['%d', '%s', '%s', '%f', '%d', '%s']
+                ['%d', '%s', '%d', '%d', '%s']
             );
         }
-
-        wp_send_json_success(['student_id' => $student_id]);
-    } else {
-        wp_send_json_error("❌ Failed to enroll student: " . $wpdb->last_error);
     }
+
+    wp_send_json_success(['student_id' => $student_id]);
+
+} else {
+    wp_send_json_error("❌ Failed to enroll student: " . $wpdb->last_error);
+}
+
 }
 
 
@@ -4347,6 +4377,16 @@ function register_student_financial_submenus() {
         'financial_pending',
         'payment_details_pending_page'
     );
+// Installments
+add_submenu_page(
+    'student-registration',
+    'Installments',
+    '↳ Installments',
+    'manage_options',
+    'financial_installments',
+    'payment_details_installments_page'
+);
+
 }
 function payment_details_paid_page() {
     render_payment_report_by_status('paid');
@@ -4355,8 +4395,14 @@ function payment_details_paid_page() {
 function payment_details_pending_page() {
     render_payment_report_by_status('pending');
 }
+function payment_details_installments_page() {
+    render_payment_report_by_status('pending', 'Installments');
+}
 
-function render_payment_report_by_status($status_filter = 'all') { 
+
+// ------------------
+// The main render function
+function render_payment_report_by_status($status_filter = 'all', $custom_title = '') {
     global $wpdb;
 
     $today = date('Y-m-d');
@@ -4369,7 +4415,12 @@ function render_payment_report_by_status($status_filter = 'all') {
     $from_date_sql = esc_sql($from_date . ' 00:00:00');
     $to_date_sql = esc_sql($to_date . ' 23:59:59');
 
-    $where = "WHERE e.enrolled_at BETWEEN '{$from_date_sql}' AND '{$to_date_sql}'";
+    $where = "WHERE 1=1";
+
+    if ($status_filter === 'paid') {
+        $where .= " AND e.enrolled_at BETWEEN '{$from_date_sql}' AND '{$to_date_sql}'";
+    }
+
     if (!empty($selected_course)) {
         $where .= $wpdb->prepare(" AND e.course_name = %s", $selected_course);
     }
@@ -4383,7 +4434,7 @@ function render_payment_report_by_status($status_filter = 'all') {
     ");
 
     foreach ($records as $record) {
-        // Get course fee and update if needed
+        // Update course fee if needed
         $course_fee = $wpdb->get_var($wpdb->prepare(
             "SELECT course_fee FROM {$wpdb->prefix}course_enrollments WHERE course_name = %s LIMIT 1",
             $record->course_name
@@ -4414,35 +4465,43 @@ function render_payment_report_by_status($status_filter = 'all') {
              WHERE student_id = %s",
             $record->student_id
         ));
-            // 5. Prepare Installments Breakdown
+
+        // Prepare Installments Breakdown
         $monthly_amount = 0;
         $monthly_amount = ($record->amount > 0) ? round($record->amount / 6) : 0;
         $paid_count = ($monthly_amount > 0) ? floor($record->paid_amount / $monthly_amount) : 0;
         $total_months = $record->pending_months ? intval($record->pending_months) + $paid_count : 6;
 
-$record->installment_lines = '';
-for ($i = 1; $i <= $total_months; $i++) {
-    if ($i <= $paid_count) {
-        $record->installment_lines .= '<div class="installment done">' . $i . ' ✓</div>';
-    } else {
-        $record->installment_lines .= '<div class="installment pending">' . $i . ' X</div>';
+        $record->installment_lines = '';
+        for ($i = 1; $i <= $total_months; $i++) {
+            if ($i <= $paid_count) {
+                $record->installment_lines .= '<div class="installment done">' . $i . ' ✓</div>';
+            } else {
+                $record->installment_lines .= '<div class="installment pending">' . $i . ' X</div>';
+            }
+        }
     }
-}
 
-    }
+    $default_title = ($status_filter === 'paid') ? 'Paid Payments' : (($status_filter === 'pending') ? 'Pending Payments' : 'All Payments');
+    echo '<h2>' . ($custom_title ?: $default_title) . '</h2>';
 
-    echo '<h2>' . ($status_filter === 'paid' ? 'Paid Payments' : ($status_filter === 'pending' ? 'Pending Payments' : 'All Payments')) . '</h2>';
+    echo '<form method="post" style="margin-bottom: 20px;">';
 
-    echo '<form method="post" style="margin-bottom: 20px;">
+    if ($status_filter === 'paid') {
+        echo '
         <label><strong>From Date:</strong> 
             <input type="date" name="from_date" value="' . esc_attr($from_date) . '" onchange="this.form.submit()">
         </label>&nbsp;&nbsp;
         <label><strong>To Date:</strong> 
             <input type="date" name="to_date" value="' . esc_attr($to_date) . '" onchange="this.form.submit()">
-        </label>&nbsp;&nbsp;
-        <label><strong>Course:</strong> 
-            <select name="course_name" onchange="this.form.submit()">
-                <option value="">All Courses</option>';
+        </label>&nbsp;&nbsp;';
+    }
+
+    // Course filter shown for all
+    echo '
+    <label><strong>Course:</strong> 
+        <select name="course_name" onchange="this.form.submit()">
+            <option value="">All Courses</option>';
 
     foreach ($courses as $course) {
         $selected = ($course == $selected_course) ? 'selected' : '';
@@ -4450,6 +4509,7 @@ for ($i = 1; $i <= $total_months; $i++) {
     }
 
     echo '</select></label></form>';
+
 
     // View Report Button (above table)
     echo '<button id="openReportModal" class="button button-secondary" style="margin-bottom: 20px;">View Report</button>';
@@ -4489,45 +4549,56 @@ for ($i = 1; $i <= $total_months; $i++) {
     .status-paid { background-color: #4CAF50; }
     .status-pending { background-color: #FF9800; }
     .installment {
-    display: block;        /* Changed from inline-block to block for vertical stacking */
-    margin: 3px 0;         /* margin top & bottom for spacing between lines */
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-weight: bold;
-    font-size: 13px;
-    border: 1px solid #ccc;
-    width: fit-content;
-}
-.installment.done {
-    background-color: #e0f8e0;
-    color: #1b8c1b;
-    border-color: #1b8c1b;
-}
-.installment.pending {
-    background-color: #fff3e0;
-    color: #d17c00;
-    border-color: #d17c00;
-}
-
+        display: block;
+        margin: 3px 0;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 13px;
+        border: 1px solid #ccc;
+        width: fit-content;
+    }
+    .installment.done {
+        background-color: #e0f8e0;
+        color: #1b8c1b;
+        border-color: #1b8c1b;
+    }
+    .installment.pending {
+        background-color: #fff3e0;
+        color: #d17c00;
+        border-color: #d17c00;
+    }
+    .due-amount-btn {
+        color: #d00;
+        font-weight: bold;
+        cursor: pointer;
+        background: none;
+        border: none;
+        font-size: 1em;
+        padding: 0;
+    }
     </style>';
 
-echo '<table class="invoices-table"><thead><tr>
-    <th>Student ID</th>
-    <th>Student Name</th>
-    <th>Course Name</th>
-    <th>Batch No</th>
-    <th>Course Fee</th>';
-    
-if ($status_filter === 'pending') {
-    echo '<th>Paid Amount</th>
-          <th>Due Amount</th>
-          <th>Installments</th>';
-}
+    echo '<table class="invoices-table"><thead><tr>
+        <th>Student ID</th>
+        <th>Student Name</th>
+        <th>Course Name</th>
+        <th>Batch No</th>
+        <th>Course Fee</th>';
 
-echo '<th>Payment Status</th>
-      <th>Payment Date</th>
-</tr></thead><tbody>';
+    if ($custom_title === 'Installments') {
+        echo '<th>Paid Amount</th>
+              <th>Due Amount</th>
+              <th>Installments</th>';
+    } elseif ($status_filter === 'pending') {
+        echo '<th>Due Amount</th>';
+    }
 
+    if ($status_filter === 'paid') {
+        echo '<th>Payment Status</th>
+              <th>Payment Date</th>';
+    }
+    echo '</tr></thead><tbody>';
 
     foreach ($records as $record) {
         $student_name = $record->student_name ?: 'Unknown';
@@ -4550,168 +4621,165 @@ echo '<th>Payment Status</th>
         echo '<td>' . esc_html($record->course_name) . '</td>';
         echo '<td>' . esc_html($record->batch_no) . '</td>';
         echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
-        if ($status_filter === 'pending') {
+
+        if ($custom_title === 'Installments') {
             echo '<td>Rs. ' . number_format((float)$record->paid_amount, 2) . '</td>';
             echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
             echo '<td style="text-align:left;">' . $record->installment_lines . '</td>';
+        } elseif ($status_filter === 'pending') {
+            // Make Due Amount clickable with data-student-id
+            echo '<td><button class="due-amount-btn" data-student-id="' . esc_attr($record->student_id) . '">Rs. ' . number_format((float)$record->due_amount, 2) . '</button></td>';
         }
 
-        echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
-        echo '<td>' . esc_html($payment_date) . '</td>';
+        if ($status_filter === 'paid') {
+            echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
+            echo '<td>' . esc_html($payment_date) . '</td>';
+        }
+
         echo '</tr>';
     }
 
     echo '</tbody></table>';
 
-    // VIEW REPORT SECTION
+
+    // The installments modal container (hidden initially)
     ?>
-   
-
-    <div id="reportModal" class="report-modal-overlay">
-        <div class="report-modal-content" style="width: 90%; max-width: 1100px;">
-            <span class="close-modal" id="closeReportModal">&times;</span>
-            <h2>Full Report</h2>
-            <div id="reportContent" style="max-height: 500px; overflow-y: auto; margin-top: 20px;">
-                <table class="invoices-table">
-                    <thead>
-                        <tr>
-                            <th>Student ID</th>
-                            <th>Student Name</th>
-                            <th>Course Name</th>
-                            <th>Batch No</th>
-                            <th>Course Fee</th>
-                            <?php if ($status_filter === 'pending') : ?>
-                                <th>Paid Amount</th>
-                                <th>Due Amount</th>
-                                <th>Pending Installments</th>
-                            <?php endif; ?>
-
-                            <th>Payment Status</th>
-                            <th>Payment Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php
-                        foreach ($records as $record) {
-                            $student_name = $record->student_name ?: 'Unknown';
-                            $payment_plan = strtolower(trim($record->payment_plan));
-
-                            if (
-                                ($status_filter === 'paid' && $payment_plan !== 'full') ||
-                                ($status_filter === 'pending' && $payment_plan !== 'monthly')
-                            ) {
-                                continue;
-                            }
-
-                            $status_text = ($payment_plan === 'full') ? 'Paid' : 'Pending';
-                            $status_class = ($payment_plan === 'full') ? 'status-paid' : 'status-pending';
-                            $payment_date = !empty($record->enrolled_at) ? date("F j, Y", strtotime($record->enrolled_at)) : '—';
-
-                            echo '<tr>';
-                            echo '<td>' . esc_html($record->student_id) . '</td>';
-                            echo '<td>' . esc_html($student_name) . '</td>';
-                            echo '<td>' . esc_html($record->course_name) . '</td>';
-                            echo '<td>' . esc_html($record->batch_no) . '</td>';
-                            echo '<td>Rs. ' . number_format((float)$record->amount, 2) . '</td>';
-        if ($status_filter === 'pending') {
-            echo '<td>Rs. ' . number_format((float)$record->paid_amount, 2) . '</td>';
-            echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
-            echo '<td style="text-align:left;">' . $record->installment_lines . '</td>';
-        }
-                            echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
-                            echo '<td>' . esc_html($payment_date) . '</td>';
-                            echo '</tr>';
-                        }
-                        ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-            <div style="margin-top: 30px; text-align:center;">
-                <button onclick="window.print();" class="button button-primary">🖨️ Print</button>
-                <button onclick="openEmail()" class="button">📧 Email</button>
-                <button onclick="downloadPDF();" class="button">📄 PDF</button>
-            </div>
-        </div>
+    <div id="installmentsModal" class="installments-modal-overlay" style="display:none;">
+      <div class="installments-modal-content" style="max-width:600px; margin:5% auto; background:#fff; padding:20px; border-radius:8px; position:relative;">
+        <span id="closeInstallmentsModal" style="position:absolute; right:15px; top:10px; font-size:24px; font-weight:bold; cursor:pointer;">&times;</span>
+        <h3>Installments Details</h3>
+        <div id="installmentsContent" style="margin-top:15px; font-size:16px;"></div>
+      </div>
     </div>
 
     <style>
-    .report-modal-overlay {
-        display: none;
-        position: fixed;
-        z-index: 9999;
-        left: 0; top: 0;
-        width: 100%; height: 100%;
-        background-color: rgba(0,0,0,0.4);
-    }
-    .report-modal-content {
-        background-color: #fff;
-        margin: 5% auto;
-        padding: 30px;
-        border: 1px solid #888;
-        width: 90%;
-        max-width: 1100px;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-        position: relative;
-        border-radius: 6px;
-    }
-    .close-modal {
-        color: #aaa;
-        position: absolute;
-        right: 15px;
-        top: 10px;
-        font-size: 24px;
-        font-weight: bold;
-        cursor: pointer;
-    }
-    .close-modal:hover {
-        color: #000;
-    }
+.installments-modal-overlay {
+  position: fixed;
+  z-index: 10000;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  background-color: rgba(0,0,0,0.5);
+}
+.installments-modal-content {
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  background: #fff;
+  margin: 5% auto;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 600px;
+  position: relative;
+}
+.installment {
+    display: block;
+    margin: 3px 0;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    width: fit-content;
+}
+.installment.done {
+    background-color: #e0f8e0;
+    color: #1b8c1b;
+    border-color: #1b8c1b;
+}
+.installment.pending {
+    background-color: #fff3e0;
+    color: #d17c00;
+    border-color: #d17c00;
+}
+
     </style>
 
     <script>
-    document.addEventListener("DOMContentLoaded", function () {
-        const openBtn = document.getElementById("openReportModal");
-        const modal = document.getElementById("reportModal");
-        const closeBtn = document.getElementById("closeReportModal");
+    document.addEventListener("DOMContentLoaded", function() {
+      const modal = document.getElementById("installmentsModal");
+      const modalContent = document.getElementById("installmentsContent");
+      const closeBtn = document.getElementById("closeInstallmentsModal");
 
-        openBtn.addEventListener("click", function () {
-            modal.style.display = "block";
-        });
+      // Open modal on Due Amount click
+      document.querySelectorAll(".due-amount-btn").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const studentId = this.getAttribute("data-student-id");
+          modalContent.innerHTML = "Loading...";
+          modal.style.display = "block";
 
-        closeBtn.addEventListener("click", function () {
-            modal.style.display = "none";
-        });
+          // Use ajaxurl provided by WP admin
+          fetch(ajaxurl + "?action=get_student_installments&student_id=" + encodeURIComponent(studentId))
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                let html = "";
+                data.data.installments.forEach(inst => {
+                  const statusClass = inst.paid ? "installment-done" : "installment-pending";
+                  const statusMark = inst.paid ? "✓" : "X";
+                  html += '<div class="installment ' + (inst.paid ? 'done' : 'pending') + '">'
+      + inst.installment_no + ' ' + (inst.paid ? '✓' : 'X')
+      + ' - Rs. ' + parseFloat(inst.installment_amount).toLocaleString('en-LK', {minimumFractionDigits: 2})
+      + '</div>';
 
-        window.addEventListener("click", function (e) {
-            if (e.target == modal) {
-                modal.style.display = "none";
-            }
+                });
+                modalContent.innerHTML = html || "<i>No installments found.</i>";
+              } else {
+                modalContent.innerHTML = "<i>Error loading installments.</i>";
+              }
+            })
+            .catch(() => {
+              modalContent.innerHTML = "<i>Error fetching installments.</i>";
+            });
         });
+      });
+
+      // Close modal handlers
+      closeBtn.addEventListener("click", () => modal.style.display = "none");
+      window.addEventListener("click", e => { if(e.target == modal) modal.style.display = "none"; });
     });
-
-    function downloadPDF() {
-        const element = document.getElementById("reportContent");
-
-        const opt = {
-            margin: 0.3,
-            filename: "payment_report.pdf",
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: "in", format: "a4", orientation: "landscape" }
-        };
-
-        html2pdf().set(opt).from(element).save();
-    }
-
-    function openEmail() {
-        const subject = encodeURIComponent("Payment Report");
-        const body = encodeURIComponent("Hi,%0A%0AFind the payment report details below.%0A%0A[Insert report summary here]%0A%0ARegards,%0AAdmin");
-        window.location.href = "mailto:?subject=" + subject + "&body=" + body;
-    }
     </script>
+
     <?php
 }
+
+// ------------------
+// Add this AJAX handler in your plugin or theme functions.php
+add_action('wp_ajax_get_student_installments', 'handle_get_student_installments');
+add_action('wp_ajax_nopriv_get_student_installments', 'handle_get_student_installments');
+
+function handle_get_student_installments() {
+    global $wpdb;
+
+    $student_id = isset($_GET['student_id']) ? sanitize_text_field($_GET['student_id']) : '';
+
+    if (empty($student_id)) {
+        wp_send_json_error(['message' => 'Missing student ID']);
+    }
+
+    $table = $wpdb->prefix . 'student_installments';
+
+    // Get installments from DB by student_id
+    $results = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT installment_no, paid, installment_amount FROM {$table} WHERE student_id = %s ORDER BY installment_no ASC",
+            $student_id
+        )
+    );
+
+    if ($results === null) {
+        wp_send_json_error(['message' => 'DB query failed']);
+    }
+
+    $installments = array_map(function($row) {
+        return [
+            'installment_no'     => intval($row->installment_no),
+            'paid'               => boolval($row->paid),
+            'installment_amount' => floatval($row->installment_amount),
+        ];
+    }, $results);
+
+    wp_send_json_success(['installments' => $installments]);
+}
+
+
 
 
 
