@@ -3379,9 +3379,10 @@ if ($insert_main) {
                     'installment_no' => $i,
                     'installment_amount'=> $monthly_amount,
                     'paid'           => ($i === 1 ? 1 : 0), // ✅ first = paid
-                    'created_at'     => $enrolled_at
+                    'created_at'     => current_time('mysql')
                 ],
-                ['%d', '%s', '%d', '%d', '%s']
+                ['%d', '%s', '%d', '%f', '%d', '%s']
+
             );
         }
     }
@@ -4253,7 +4254,7 @@ document.getElementById("saveBatchButton").addEventListener("click", () => {
 }
 add_action('wp_ajax_save_batch_data', 'handle_save_batch_data');
 
-function handle_save_batch_data() {
+function handle_save_batch_data() { 
     global $wpdb;
     $table_name = $wpdb->prefix . 'custom_batches';
 
@@ -4274,12 +4275,10 @@ function handle_save_batch_data() {
                             ? floatval($_POST['course_fee']) 
                             : 0;
 
-    // Use new course fee if provided, otherwise fall back to existing one
     $final_course_fee = $new_course_fee !== null ? $new_course_fee : $existing_course_fee;
     $registration_fee = isset($_POST['registration_fee']) && is_numeric($_POST['registration_fee']) 
-                    ? floatval($_POST['registration_fee']) 
-                    : 0.00;
-
+                        ? floatval($_POST['registration_fee']) 
+                        : 0.00;
 
     // Validation
     if (!$instructor_name || !$course_name || !$start_date || !$end_date || !$start_time || !$end_time) {
@@ -4295,43 +4294,52 @@ function handle_save_batch_data() {
 
     // Generate a shared batch_no
     $batch_no = 'BATCH-' . date('Ymd');
-    $current_timestamp = $start_timestamp;
     $inserted_count = 0;
 
-    while ($current_timestamp <= $end_timestamp) {
-        $current_date = date('Y-m-d', $current_timestamp);
+    // First, generate all session dates
+    $all_session_dates = [];
+    $current = $start_timestamp;
 
+    while ($current <= $end_timestamp) {
+        $all_session_dates[] = date('Y-m-d', $current);
+        $current = strtotime('+1 week', $current);
+    }
+
+    $final_end_date = end($all_session_dates); //  The last session's date will be used as common end_date
+
+    // Now insert each session
+    foreach ($all_session_dates as $session_date) {
         $result = $wpdb->insert(
             $table_name,
             [
-                'batch_no'        => $batch_no,
-                'instructor_name' => $instructor_name,
-                'course_name'     => $course_name,
-                'start_date'      => $current_date,
-                'end_date'        => $current_date,
-                'start_time'      => $start_time,
-                'end_time'        => $end_time,
-                'course_fee'      => $final_course_fee,
+                'batch_no'         => $batch_no,
+                'instructor_name'  => $instructor_name,
+                'course_name'      => $course_name,
+                'start_date'       => $session_date,
+                'end_date'         => $final_end_date, // Use last date for all
+                'start_time'       => $start_time,
+                'end_time'         => $end_time,
+                'course_fee'       => $final_course_fee,
                 'registration_fee' => $registration_fee,
             ],
-            ['%s', '%s', '%s', '%s', '%s', '%s', '%f']
+            ['%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f']
         );
 
         if (!$result) {
-            wp_send_json_error("Failed to insert batch for date: $current_date");
+            wp_send_json_error("Failed to insert batch for date: $session_date");
             return;
         }
 
         $inserted_count++;
-        $current_timestamp = strtotime("+1 week", $current_timestamp);
     }
 
     if ($inserted_count > 0) {
-        wp_send_json_success("Batch saved successfully for $inserted_count occurrences. Batch No: $batch_no");
+        wp_send_json_success("Batch saved successfully for $inserted_count sessions. Batch No: $batch_no");
     } else {
         wp_send_json_error("No batches saved.");
     }
 }
+
 
 
 
@@ -4449,15 +4457,21 @@ function render_payment_report_by_status($status_filter = 'all', $custom_title =
             $record->amount = $course_fee;
         }
 
-        // Sum paid monthly amounts for this student & batch
+
+        // Sum paid installment amounts instead of monthly payments
         $record->paid_amount = $wpdb->get_var($wpdb->prepare(
-            "SELECT SUM(monthly_amount) FROM {$wpdb->prefix}students_monthly_payments 
-             WHERE student_id = %s AND batch_no = %s",
-            $record->student_id, $record->batch_no
+            "SELECT SUM(installment_amount) FROM {$wpdb->prefix}student_installments 
+             WHERE student_id = %s AND paid = 1",
+            $record->student_id
         ));
+        
         $record->paid_amount = $record->paid_amount ? floatval($record->paid_amount) : 0;
 
         $record->due_amount = max(0, $record->amount - $record->paid_amount);
+        // ✅ Skip fully paid students in pending page
+        if ($status_filter === 'pending' && $record->due_amount <= 0 && !$custom_title) {
+            continue;
+        }
 
         // Get pending months string (latest record)
         $record->pending_months = $wpdb->get_var($wpdb->prepare(
@@ -4468,18 +4482,126 @@ function render_payment_report_by_status($status_filter = 'all', $custom_title =
 
         // Prepare Installments Breakdown
         $monthly_amount = 0;
-        $monthly_amount = ($record->amount > 0) ? round($record->amount / 6) : 0;
-        $paid_count = ($monthly_amount > 0) ? floor($record->paid_amount / $monthly_amount) : 0;
-        $total_months = $record->pending_months ? intval($record->pending_months) + $paid_count : 6;
+// Fetch installments from student_installments table (like handle_get_student_installments)
+$installments = $wpdb->get_results($wpdb->prepare(
+    "SELECT installment_no, paid, installment_amount FROM {$wpdb->prefix}student_installments WHERE student_id = %s ORDER BY installment_no ASC",
+    $record->student_id
+));
 
-        $record->installment_lines = '';
-        for ($i = 1; $i <= $total_months; $i++) {
-            if ($i <= $paid_count) {
-                $record->installment_lines .= '<div class="installment done">' . $i . ' ✓</div>';
+$record->installment_lines = '';
+$foundFirstUnpaid = false;
+
+if (!empty($installments)) {
+    foreach ($installments as $inst) {
+        $isPaid = intval($inst->paid) === 1;
+        $statusMark = $isPaid ? '✓' : 'X';
+        $amountFormatted = number_format(floatval($inst->installment_amount), 2);
+
+        if ($isPaid) {
+            $record->installment_lines .= '<div class="installment done">' 
+                . esc_html($inst->installment_no) . ' ' . $statusMark . ' - Rs. ' . $amountFormatted 
+                . '</div>';
+        } else {
+            if (!$foundFirstUnpaid) {
+                $record->installment_lines .= '<div class="installment pending">'
+                    . '<a href="#" class="mark-installment-paid" '
+                    . 'data-installment="' . esc_attr($inst->installment_no) . '" '
+                    . 'data-student="' . esc_attr($record->student_id) . '" '
+                    . 'data-amount="' . esc_attr($amountFormatted) . '">'
+                    . esc_html($inst->installment_no) . ' ' . $statusMark . ' - Rs. ' . $amountFormatted
+                    . '</a></div>';
+                $foundFirstUnpaid = true;
             } else {
-                $record->installment_lines .= '<div class="installment pending">' . $i . ' X</div>';
+                $record->installment_lines .= '<div class="installment pending" style="opacity:0.5; pointer-events:none;">'
+                    . esc_html($inst->installment_no) . ' ' . $statusMark . ' - Rs. ' . $amountFormatted
+                    . '</div>';
             }
         }
+    }
+} else {
+    $record->installment_lines = '<i>No installments found</i>';
+}
+    
+    
+$record->installment_lines = '';
+$foundUnpaidToDisplay = false;
+$current_month = date('Y-m');
+$installments = $wpdb->get_results($wpdb->prepare(
+    "SELECT installment_no, paid, installment_amount FROM {$wpdb->prefix}student_installments 
+     WHERE student_id = %s ORDER BY installment_no ASC",
+    $record->student_id
+));
+
+$start_date = $wpdb->get_var($wpdb->prepare(
+    "SELECT MIN(start_date) FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s",
+    $record->batch_no
+));
+
+if (!empty($installments) && $start_date) {
+    $course_start = new DateTime($start_date);
+
+    foreach ($installments as $inst) {
+        $installment_no = intval($inst->installment_no);
+        $isPaid = intval($inst->paid) === 1;
+        $amountFormatted = number_format(floatval($inst->installment_amount), 2);
+
+        $installment_date_obj = (clone $course_start)->modify("+" . ($installment_no - 1) . " months");
+        $installment_month = $installment_date_obj->format('Y-m');
+        $month_label = $installment_date_obj->format('F Y');
+        $mark = $isPaid 
+            ? '<span style="color:green;">&#10003;</span>' 
+            : '<span style="color:orange;">&#10007;</span>';
+
+        // === Installments Page: Show All ===
+        if ($custom_title === 'Installments') {
+            $css_class = $isPaid ? 'installment done' : 'installment pending';
+            $style = (!$isPaid && !$foundUnpaidToDisplay) ? 'highlight' : ($isPaid ? '' : 'opacity:0.5; pointer-events:none;');
+            if (!$isPaid && !$foundUnpaidToDisplay) $style = 'highlight';
+
+            $record->installment_lines .= '<div class="' . $css_class . '" style="' . $style . '">'
+                . ($isPaid 
+                    ? esc_html($installment_no) . ' ' . $mark . ' - Rs. ' . $amountFormatted . ' <small>(' . $month_label . ')</small>'
+                    : '<a href="#" class="mark-installment-paid" '
+                        . 'data-installment="' . esc_attr($installment_no) . '" '
+                        . 'data-student="' . esc_attr($record->student_id) . '" '
+                        . 'data-amount="' . esc_attr($amountFormatted) . '">'
+                        . esc_html($installment_no) . ' ' . $mark . ' - Rs. ' . $amountFormatted . ' <small>(' . $month_label . ')</small>'
+                        . '</a>')
+                . '</div>';
+            if (!$isPaid && !$foundUnpaidToDisplay) $foundUnpaidToDisplay = true;
+        }
+
+        // === Pending Page: Show only 1 unpaid (current month or next)
+        if ($status_filter === 'pending' && !$custom_title) {
+            if (!$isPaid && !$foundUnpaidToDisplay && ($installment_month === $current_month || $installment_month > $current_month)) {
+                $record->installment_lines = '<div class="installment pending highlight">'
+                    . '<a href="#" class="mark-installment-paid" '
+                    . 'data-installment="' . esc_attr($installment_no) . '" '
+                    . 'data-student="' . esc_attr($record->student_id) . '" '
+                    . 'data-amount="' . esc_attr($amountFormatted) . '">'
+                    . esc_html($installment_no) . ' ' . $mark . ' - Rs. ' . $amountFormatted . ' <small>(' . $month_label . ')</small>'
+                    . '</a></div>';
+                $foundUnpaidToDisplay = true;
+            }
+        }
+    }
+
+    // If no unpaid to show in pending page, skip this record
+    if ($status_filter === 'pending' && !$custom_title && !$foundUnpaidToDisplay) {
+        continue; // Skip this student row
+    }
+
+    // If no unpaid this month but future unpaid exists, show "No installment due this month" (for clarity, optional)
+    if ($status_filter === 'pending' && !$custom_title && empty($record->installment_lines)) {
+        $record->installment_lines = '<i>No installment due this month</i>';
+    }
+
+} else {
+    $record->installment_lines = '<i>No installments found</i>';
+}
+
+
+
     }
 
     $default_title = ($status_filter === 'paid') ? 'Paid Payments' : (($status_filter === 'pending') ? 'Pending Payments' : 'All Payments');
@@ -4577,6 +4699,13 @@ function render_payment_report_by_status($status_filter = 'all', $custom_title =
         font-size: 1em;
         padding: 0;
     }
+    .installment.pending.highlight {
+    background-color: #ffe3ba; /* darker orange */
+    color: #b35b00;
+    border-color: #b35b00;
+    font-weight: bolder;
+}
+
     </style>';
 
     echo '<table class="invoices-table"><thead><tr>
@@ -4591,8 +4720,11 @@ function render_payment_report_by_status($status_filter = 'all', $custom_title =
               <th>Due Amount</th>
               <th>Installments</th>';
     } elseif ($status_filter === 'pending') {
-        echo '<th>Due Amount</th>';
+        echo '<th>Paid Amount</th>
+              <th>Due Amount</th>
+              <th>Installments</th>';
     }
+
 
     if ($status_filter === 'paid') {
         echo '<th>Payment Status</th>
@@ -4603,7 +4735,9 @@ function render_payment_report_by_status($status_filter = 'all', $custom_title =
     foreach ($records as $record) {
         $student_name = $record->student_name ?: 'Unknown';
         $payment_plan = strtolower(trim($record->payment_plan));
-
+        if ($status_filter === 'pending' && $record->due_amount <= 0 && !$custom_title) {
+        continue;
+    }
         if (
             ($status_filter === 'paid' && $payment_plan !== 'full') ||
             ($status_filter === 'pending' && $payment_plan !== 'monthly')
@@ -4627,9 +4761,11 @@ function render_payment_report_by_status($status_filter = 'all', $custom_title =
             echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
             echo '<td style="text-align:left;">' . $record->installment_lines . '</td>';
         } elseif ($status_filter === 'pending') {
-            // Make Due Amount clickable with data-student-id
-            echo '<td><button class="due-amount-btn" data-student-id="' . esc_attr($record->student_id) . '">Rs. ' . number_format((float)$record->due_amount, 2) . '</button></td>';
+            echo '<td>Rs. ' . number_format((float)$record->paid_amount, 2) . '</td>';
+            echo '<td><strong style="color:#d00;">Rs. ' . number_format((float)$record->due_amount, 2) . '</strong></td>';
+            echo '<td style="text-align:left;">' . $record->installment_lines . '</td>';
         }
+
 
         if ($status_filter === 'paid') {
             echo '<td><span class="status-badge ' . $status_class . '">' . esc_html($status_text) . '</span></td>';
@@ -4644,15 +4780,29 @@ function render_payment_report_by_status($status_filter = 'all', $custom_title =
 
     // The installments modal container (hidden initially)
     ?>
-    <div id="installmentsModal" class="installments-modal-overlay" style="display:none;">
-      <div class="installments-modal-content" style="max-width:600px; margin:5% auto; background:#fff; padding:20px; border-radius:8px; position:relative;">
-        <span id="closeInstallmentsModal" style="position:absolute; right:15px; top:10px; font-size:24px; font-weight:bold; cursor:pointer;">&times;</span>
-        <h3>Installments Details</h3>
-        <div id="installmentsContent" style="margin-top:15px; font-size:16px;"></div>
-      </div>
-    </div>
+<div id="installmentsModal" class="installments-modal-overlay" style="display:none;">
+  <div class="installments-modal-content">
+    <span id="closeInstallmentsModal" class="close-modal">&times;</span>
+    <h3>Installments Details</h3>
+    <div id="installmentsContent" style="margin-top:15px; font-size:16px;"></div>
+  </div>
+</div>
 
-    <style>
+<!-- Mark as Paid Modal -->
+<div id="markAsPaidModal" class="installments-modal-overlay" style="display:none;">
+  <div class="installments-modal-content" style="max-width:400px;">
+    <span id="closeMarkAsPaidModal" class="close-modal">&times;</span>
+    <h4>Mark Installment as Paid</h4>
+
+    <div id="studentDetailsText" style="margin-bottom: 10px; font-size: 14px; background: #f7f7f7; padding: 10px; border-left: 4px solid #333;"></div>
+
+    <p id="installmentDetailsText"></p>
+    <button id="confirmMarkPaidBtn" style="margin-top:10px; padding:8px 14px;">Confirm</button>
+  </div>
+</div>
+
+
+<style>
 .installments-modal-overlay {
   position: fixed;
   z-index: 10000;
@@ -4661,102 +4811,270 @@ function render_payment_report_by_status($status_filter = 'all', $custom_title =
   background-color: rgba(0,0,0,0.5);
 }
 .installments-modal-content {
-  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
   background: #fff;
   margin: 5% auto;
   padding: 20px;
   border-radius: 8px;
   max-width: 600px;
   position: relative;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
 .installment {
-    display: block;
-    margin: 3px 0;
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-weight: bold;
-    font-size: 13px;
-    border: 1px solid #ccc;
-    width: fit-content;
+  display: block;
+  margin: 3px 0;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 13px;
+  border: 1px solid #ccc;
+  width: fit-content;
 }
 .installment.done {
-    background-color: #e0f8e0;
-    color: #1b8c1b;
-    border-color: #1b8c1b;
+  background-color: #e0f8e0;
+  color: #1b8c1b;
+  border-color: #1b8c1b;
 }
 .installment.pending {
-    background-color: #fff3e0;
-    color: #d17c00;
-    border-color: #d17c00;
+  background-color: #fff3e0;
+  color: #d17c00;
+  border-color: #d17c00;
+}
+.installment a {
+  text-decoration: none;
+  color: inherit;
+}
+.close-modal {
+  position: absolute;
+  right: 15px;
+  top: 10px;
+  font-size: 24px;
+  font-weight: bold;
+  cursor: pointer;
+}
+#studentDetailsText {
+  background: #eef6ff;
+  padding: 10px;
+  border-left: 4px solid #0073aa;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-    </style>
+</style>
 
-    <script>
-    document.addEventListener("DOMContentLoaded", function() {
-      const modal = document.getElementById("installmentsModal");
-      const modalContent = document.getElementById("installmentsContent");
-      const closeBtn = document.getElementById("closeInstallmentsModal");
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const modal = document.getElementById("installmentsModal");
+  const modalContent = document.getElementById("installmentsContent");
+  const closeBtn = document.getElementById("closeInstallmentsModal");
 
-      // Open modal on Due Amount click
-      document.querySelectorAll(".due-amount-btn").forEach(btn => {
-        btn.addEventListener("click", function() {
-          const studentId = this.getAttribute("data-student-id");
-          modalContent.innerHTML = "Loading...";
-          modal.style.display = "block";
+  const paidModal = document.getElementById("markAsPaidModal");
+  const paidText = document.getElementById("installmentDetailsText");
+  const confirmBtn = document.getElementById("confirmMarkPaidBtn");
+  const closePaidBtn = document.getElementById("closeMarkAsPaidModal");
 
-          // Use ajaxurl provided by WP admin
-          fetch(ajaxurl + "?action=get_student_installments&student_id=" + encodeURIComponent(studentId))
-            .then(response => response.json())
-            .then(data => {
-              if (data.success) {
-                let html = "";
-                data.data.installments.forEach(inst => {
-                  const statusClass = inst.paid ? "installment-done" : "installment-pending";
-                  const statusMark = inst.paid ? "✓" : "X";
-                  html += '<div class="installment ' + (inst.paid ? 'done' : 'pending') + '">'
-      + inst.installment_no + ' ' + (inst.paid ? '✓' : 'X')
-      + ' - Rs. ' + parseFloat(inst.installment_amount).toLocaleString('en-LK', {minimumFractionDigits: 2})
-      + '</div>';
+  // Open modal on click
+  document.querySelectorAll(".due-amount-btn").forEach(btn => {
+    btn.addEventListener("click", function () {
+      const studentId = this.getAttribute("data-student-id");
+      modalContent.innerHTML = "Loading...";
+      modal.style.display = "block";
 
-                });
-                modalContent.innerHTML = html || "<i>No installments found.</i>";
+      fetch(ajaxurl + "?action=get_student_installments&student_id=" + encodeURIComponent(studentId))
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            let html = "";
+            let foundFirstUnpaid = false;
+
+            data.data.installments.forEach(inst => {
+              const isPaid = inst.paid;
+              const statusMark = isPaid ? "✓" : "X";
+              const amountFormatted = parseFloat(inst.installment_amount).toLocaleString('en-LK', { minimumFractionDigits: 2 });
+
+              let classList = "installment";
+              let disabledAttr = "";
+              let clickable = false;
+
+              if (isPaid) {
+                classList += " done";
+              } else if (!foundFirstUnpaid) {
+                classList += " pending";
+                clickable = true;
+                foundFirstUnpaid = true;
               } else {
-                modalContent.innerHTML = "<i>Error loading installments.</i>";
+                classList += " pending";
+                disabledAttr = 'style="opacity: 0.5; pointer-events: none;"';
               }
-            })
-            .catch(() => {
-              modalContent.innerHTML = "<i>Error fetching installments.</i>";
-            });
-        });
-      });
 
-      // Close modal handlers
-      closeBtn.addEventListener("click", () => modal.style.display = "none");
-      window.addEventListener("click", e => { if(e.target == modal) modal.style.display = "none"; });
+              if (clickable) {
+                html += `<div class="${classList}">
+                  <a href="#" class="mark-installment-paid" data-installment="${inst.installment_no}" data-student="${studentId}" data-amount="${amountFormatted}">
+                    ${inst.installment_no} ${statusMark} - Rs. ${amountFormatted}
+                  </a>
+                </div>`;
+              } else {
+                html += `<div class="${classList}" ${disabledAttr}>
+                  ${inst.installment_no} ${statusMark} - Rs. ${amountFormatted}
+                </div>`;
+              }
+            });
+
+            modalContent.innerHTML = html || "<i>No installments found.</i>";
+          } else {
+            modalContent.innerHTML = "<i>Error loading installments.</i>";
+          }
+        })
+        .catch(() => {
+          modalContent.innerHTML = "<i>Error fetching installments.</i>";
+        });
     });
-    </script>
+  });
+
+  // Close main modal
+  closeBtn.addEventListener("click", () => modal.style.display = "none");
+  window.addEventListener("click", e => { if (e.target == modal) modal.style.display = "none"; });
+
+  // Click to open mark as paid modal
+document.body.addEventListener("click", function(e) {
+  if (e.target.classList.contains("mark-installment-paid")) {
+    e.preventDefault();
+
+    const instNo = e.target.getAttribute("data-installment");
+    const studentId = e.target.getAttribute("data-student");
+    const amount = e.target.getAttribute("data-amount");
+
+    // Get row
+    const row = e.target.closest("tr");
+    let studentName = "—", courseName = "—", batchNo = "—";
+
+    if (row) {
+      studentName = row.children[1]?.textContent.trim() || "—";
+      courseName = row.children[2]?.textContent.trim() || "—";
+      batchNo = row.children[3]?.textContent.trim() || "—";
+    }
+
+    // Fill the modal content
+    document.getElementById("studentDetailsText").innerHTML = `
+      <strong>Student:</strong> ${studentName} (${studentId})<br>
+      <strong>Course:</strong> ${courseName}<br>
+      <strong>Batch No:</strong> ${batchNo}
+    `;
+
+    document.getElementById("installmentDetailsText").textContent = `Installment ${instNo} - Rs. ${amount}`;
+    document.getElementById("confirmMarkPaidBtn").setAttribute("data-installment", instNo);
+    document.getElementById("confirmMarkPaidBtn").setAttribute("data-student", studentId);
+
+    document.getElementById("markAsPaidModal").style.display = "block";
+  }
+});
+
+
+
+  // Close mark as paid modal
+  closePaidBtn.addEventListener("click", () => paidModal.style.display = "none");
+  window.addEventListener("click", e => { if (e.target == paidModal) paidModal.style.display = "none"; });
+
+  // Confirm paid
+  confirmBtn.addEventListener("click", function () {
+    const instNo = this.getAttribute("data-installment");
+    const studentId = this.getAttribute("data-student");
+
+    fetch(ajaxurl, {
+      method: "POST",
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        action: "mark_student_installment_paid",
+        student_id: studentId,
+        installment_no: instNo
+      })
+    })
+    .then(res => res.json())
+    .then(response => {
+      if (response.success) {
+        alert("Installment marked as paid!");
+        location.reload();
+        paidModal.style.display = "none";
+        modal.style.display = "none";
+
+        // Re-open to refresh
+// Refresh the correct modal content
+if (document.querySelector(`.due-amount-btn[data-student-id="${studentId}"]`)) {
+  // If we're in the Pending page (button exists), re-click to refresh
+  document.querySelector(`.due-amount-btn[data-student-id="${studentId}"]`).click();
+} else {
+  // Else, if on Installments page, re-fetch and manually refresh the content
+  fetch(ajaxurl + "?action=get_student_installments&student_id=" + encodeURIComponent(studentId))
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        let html = "";
+        let foundFirstUnpaid = false;
+
+        data.data.installments.forEach(inst => {
+          const isPaid = inst.paid;
+          const statusMark = isPaid ? "✓" : "X";
+          const amountFormatted = parseFloat(inst.installment_amount).toLocaleString('en-LK', { minimumFractionDigits: 2 });
+
+          let classList = "installment";
+          let disabledAttr = "";
+          let clickable = false;
+
+          if (isPaid) {
+            classList += " done";
+          } else if (!foundFirstUnpaid) {
+            classList += " pending";
+            clickable = true;
+            foundFirstUnpaid = true;
+          } else {
+            classList += " pending";
+            disabledAttr = 'style="opacity: 0.5; pointer-events: none;"';
+          }
+
+          if (clickable) {
+            html += `<div class="${classList}">
+              <a href="#" class="mark-installment-paid" data-installment="${inst.installment_no}" data-student="${studentId}" data-amount="${amountFormatted}">
+                ${inst.installment_no} ${statusMark} - Rs. ${amountFormatted}
+              </a>
+            </div>`;
+          } else {
+            html += `<div class="${classList}" ${disabledAttr}>
+              ${inst.installment_no} ${statusMark} - Rs. ${amountFormatted}
+            </div>`;
+          }
+        });
+
+        modalContent.innerHTML = html || "<i>No installments found.</i>";
+      } else {
+        modalContent.innerHTML = "<i>Error loading installments.</i>";
+      }
+    })
+    .catch(() => {
+      modalContent.innerHTML = "<i>Error fetching installments.</i>";
+    });
+}
+
+      } else {
+        alert("Failed to mark as paid.");
+      }
+    })
+    .catch(() => alert("Error occurred while marking as paid."));
+  });
+});
+</script>
 
     <?php
 }
 
 // ------------------
 // Add this AJAX handler in your plugin or theme functions.php
+// AJAX: Get installments
 add_action('wp_ajax_get_student_installments', 'handle_get_student_installments');
-add_action('wp_ajax_nopriv_get_student_installments', 'handle_get_student_installments');
-
 function handle_get_student_installments() {
     global $wpdb;
-
     $student_id = isset($_GET['student_id']) ? sanitize_text_field($_GET['student_id']) : '';
-
-    if (empty($student_id)) {
-        wp_send_json_error(['message' => 'Missing student ID']);
-    }
+    if (empty($student_id)) wp_send_json_error(['message' => 'Missing student ID']);
 
     $table = $wpdb->prefix . 'student_installments';
-
-    // Get installments from DB by student_id
     $results = $wpdb->get_results(
         $wpdb->prepare(
             "SELECT installment_no, paid, installment_amount FROM {$table} WHERE student_id = %s ORDER BY installment_no ASC",
@@ -4764,20 +5082,45 @@ function handle_get_student_installments() {
         )
     );
 
-    if ($results === null) {
-        wp_send_json_error(['message' => 'DB query failed']);
-    }
+    if ($results === null) wp_send_json_error(['message' => 'DB query failed']);
 
     $installments = array_map(function($row) {
         return [
-            'installment_no'     => intval($row->installment_no),
-            'paid'               => boolval($row->paid),
+            'installment_no' => intval($row->installment_no),
+            'paid' => boolval($row->paid),
             'installment_amount' => floatval($row->installment_amount),
         ];
     }, $results);
 
     wp_send_json_success(['installments' => $installments]);
 }
+
+// AJAX: Mark as Paid
+add_action('wp_ajax_mark_student_installment_paid', 'handle_mark_student_installment_paid');
+function handle_mark_student_installment_paid() {
+    global $wpdb;
+
+    $student_id = sanitize_text_field($_POST['student_id'] ?? '');
+    $installment_no = intval($_POST['installment_no'] ?? 0);
+
+    if (empty($student_id) || !$installment_no) wp_send_json_error(['message' => 'Missing data']);
+
+    $table = $wpdb->prefix . 'student_installments';
+    $updated = $wpdb->update(
+        $table,
+        ['paid' => 1],
+        ['student_id' => $student_id, 'installment_no' => $installment_no],
+        ['%d'],
+        ['%s', '%d']
+    );
+
+    if ($updated !== false || $updated === 0) {
+        wp_send_json_success();
+    } else {
+        wp_send_json_error(['message' => 'DB update failed']);
+    }
+}
+
 
 
 
