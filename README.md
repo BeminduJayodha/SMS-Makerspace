@@ -13,9 +13,10 @@ Features:
   - Assign students to courses
 
 - Payment Management
-  - Track student payments for courses
+  - Track student payments for courses including paid, pending, and installments
+  - View and update student payment status
   - Send automatic email payment reminders
-  - Manage payment status and history
+  - Manage payment history and installment plans
 
 - Student Progress Entry
   - Record and track student progress on courses
