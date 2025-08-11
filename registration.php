@@ -1,5 +1,6 @@
 <?php
 
+
 // Create DB table on activation
 register_activation_hook(__FILE__, 'student_registration_create_table');
 function student_registration_create_table() {
@@ -16,6 +17,7 @@ function student_registration_create_table() {
         email varchar(255) NOT NULL,
         phone varchar(20) NOT NULL,
         created_at datetime DEFAULT CURRENT_TIMESTAMP,
+        registration_fee_paid TINYINT(1) NOT NULL DEFAULT 0,
         PRIMARY KEY (id)
     ) $charset_collate;";
 
@@ -3208,6 +3210,11 @@ function create_students_course_enrollment_table() {
         course_name VARCHAR(255) NOT NULL,
         batch_no VARCHAR(50) DEFAULT NULL,
         enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        payment_plan VARCHAR(50) NOT NULL,
+        monthly_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        full_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        pending_months INT NOT NULL DEFAULT 0,
+        course_duration INT NOT NULL DEFAULT 0,
         PRIMARY KEY (student_id, course_name)
     ) $charset_collate;";
 
@@ -3222,6 +3229,35 @@ function delete_students_course_enrollment_table() {
     $table_name = $wpdb->prefix . 'students_course_enrollment';
     $wpdb->query("DROP TABLE IF EXISTS $table_name");
 }
+// Create student_enrollments_table on plugin activation
+//register_activation_hook(__FILE__, 'create_student_enrollments_table');
+//function create_student_enrollments_table() {
+//    global $wpdb;
+//    $table_name = $wpdb->prefix . 'student_enrollments';
+//    $charset_collate = $wpdb->get_charset_collate();
+//
+//    $sql = "CREATE TABLE $table_name (
+//        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+//        full_name VARCHAR(255) NOT NULL,
+//        dob DATE NOT NULL,
+//        gender VARCHAR(20) NOT NULL,
+//        grade VARCHAR(50) NOT NULL,
+//        school_name VARCHAR(255) NOT NULL,
+//        student_email VARCHAR(255) NOT NULL,
+//        course_name VARCHAR(255) NOT NULL,
+//        experience TEXT NULL,
+//        parent_name VARCHAR(255) NOT NULL,
+//        parent_phone VARCHAR(50) NOT NULL,
+//        guardian_email VARCHAR(255) DEFAULT NULL,
+//        submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+//        is_enrolled TINYINT(1) DEFAULT 0,
+//        PRIMARY KEY (id)
+//    ) $charset_collate;";
+//
+//    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+//    dbDelta($sql);
+//}
+
 
 
 add_action('wp_ajax_enroll_student_in_course', 'enroll_student_in_course_handler');
@@ -4259,12 +4295,12 @@ function handle_save_batch_data() {
     $table_name = $wpdb->prefix . 'custom_batches';
 
     // Sanitize inputs
-    $instructor_name = sanitize_text_field($_POST['instructor_name']);
-    $course_name     = sanitize_text_field($_POST['course_name']);
-    $start_date      = sanitize_text_field($_POST['start_date']);
-    $end_date        = sanitize_text_field($_POST['end_date']);
-    $start_time      = sanitize_text_field($_POST['start_time']);
-    $end_time        = sanitize_text_field($_POST['end_time']);
+    $instructor_name = sanitize_text_field($_POST['instructor_name'] ?? '');
+    $course_name     = sanitize_text_field($_POST['course_name'] ?? '');
+    $start_date      = sanitize_text_field($_POST['start_date'] ?? '');
+    $end_date        = sanitize_text_field($_POST['end_date'] ?? '');
+    $start_time      = sanitize_text_field($_POST['start_time'] ?? '');
+    $end_time        = sanitize_text_field($_POST['end_time'] ?? '');
 
     // Optional fee values
     $new_course_fee  = isset($_POST['new_course_fee']) && is_numeric($_POST['new_course_fee']) 
@@ -4273,16 +4309,18 @@ function handle_save_batch_data() {
 
     $existing_course_fee = isset($_POST['course_fee']) && is_numeric($_POST['course_fee']) 
                             ? floatval($_POST['course_fee']) 
-                            : 0;
+                            : 0.0;
 
     $final_course_fee = $new_course_fee !== null ? $new_course_fee : $existing_course_fee;
+
     $registration_fee = isset($_POST['registration_fee']) && is_numeric($_POST['registration_fee']) 
                         ? floatval($_POST['registration_fee']) 
-                        : 0.00;
+                        : 0.0;
 
     // Validation
     if (!$instructor_name || !$course_name || !$start_date || !$end_date || !$start_time || !$end_time) {
         wp_send_json_error("Missing required fields.");
+        return;
     }
 
     $start_timestamp = strtotime($start_date);
@@ -4290,30 +4328,31 @@ function handle_save_batch_data() {
 
     if ($start_timestamp > $end_timestamp) {
         wp_send_json_error("Start date cannot be after end date.");
+        return;
     }
 
-    // Generate a shared batch_no
+    // Generate batch_no
     $today = date('Ymd');
-$like_pattern = 'BATCH-' . $today . '%';
+    $like_pattern = 'BATCH-' . $today . '%';
 
-$latest_batch = $wpdb->get_var(
-    $wpdb->prepare(
-        "SELECT batch_no FROM $table_name WHERE batch_no LIKE %s ORDER BY batch_no DESC LIMIT 1",
-        $like_pattern
-    )
-);
+    $latest_batch = $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT batch_no FROM $table_name WHERE batch_no LIKE %s ORDER BY batch_no DESC LIMIT 1",
+            $like_pattern
+        )
+    );
 
-if ($latest_batch && preg_match('/-(\d+)$/', $latest_batch, $matches)) {
-    $next_number = str_pad((int)$matches[1] + 1, 3, '0', STR_PAD_LEFT);
-} else {
-    $next_number = '001';
-}
+    if ($latest_batch && preg_match('/-(\d+)$/', $latest_batch, $matches)) {
+        $next_number = str_pad((int)$matches[1] + 1, 3, '0', STR_PAD_LEFT);
+    } else {
+        $next_number = '001';
+    }
 
-$batch_no = 'BATCH-' . $today . '-' . $next_number;
+    $batch_no = 'BATCH-' . $today . '-' . $next_number;
 
     $inserted_count = 0;
 
-    // First, generate all session dates
+    // Generate all session dates (weekly)
     $all_session_dates = [];
     $current = $start_timestamp;
 
@@ -4322,9 +4361,8 @@ $batch_no = 'BATCH-' . $today . '-' . $next_number;
         $current = strtotime('+1 week', $current);
     }
 
-    $final_end_date = end($all_session_dates); //  The last session's date will be used as common end_date
+    $final_end_date = end($all_session_dates);
 
-    // Now insert each session
     foreach ($all_session_dates as $session_date) {
         $result = $wpdb->insert(
             $table_name,
@@ -4333,18 +4371,21 @@ $batch_no = 'BATCH-' . $today . '-' . $next_number;
                 'instructor_name'  => $instructor_name,
                 'course_name'      => $course_name,
                 'start_date'       => $session_date,
-                'end_date'         => $final_end_date, // Use last date for all
+                'end_date'         => $final_end_date,
                 'start_time'       => $start_time,
                 'end_time'         => $end_time,
-                'course_fee'       => $final_course_fee,
-                'registration_fee' => $registration_fee,
+                'course_fee'       => floatval($final_course_fee),
+                'registration_fee' => floatval($registration_fee),
             ],
             ['%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f']
         );
 
-        if (!$result) {
+        if ($result === false) {
+            error_log("DB Insert failed for batch_no $batch_no on date $session_date: " . $wpdb->last_error);
             wp_send_json_error("Failed to insert batch for date: $session_date");
             return;
+        } else {
+            error_log("DB Insert succeeded for batch_no $batch_no on date $session_date");
         }
 
         $inserted_count++;
@@ -4356,6 +4397,7 @@ $batch_no = 'BATCH-' . $today . '-' . $next_number;
         wp_send_json_error("No batches saved.");
     }
 }
+
 
 
 
@@ -4412,6 +4454,93 @@ add_submenu_page(
     'payment_details_installments_page'
 );
 
+}
+// Create table on plugin activation
+register_activation_hook(__FILE__, 'create_students_full_payments_table');
+function create_students_full_payments_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'students_full_payments';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        student_id BIGINT(20) UNSIGNED NOT NULL,
+        batch_no VARCHAR(50) NOT NULL,
+        payment_plan VARCHAR(50) NOT NULL,
+        full_amount DECIMAL(10,2) NOT NULL,
+        enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+// Create table on plugin activation
+register_activation_hook(__FILE__, 'create_students_monthly_payments_table');
+function create_students_monthly_payments_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'students_monthly_payments';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        student_id BIGINT(20) UNSIGNED NOT NULL,
+        batch_no VARCHAR(50) NOT NULL,
+        payment_plan VARCHAR(50) NOT NULL,
+        monthly_amount DECIMAL(10,2) NOT NULL,
+        pending_months TEXT NULL,
+        enrolled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        installment_no INT(11) NOT NULL,
+        paid TINYINT(1) DEFAULT 0,
+        PRIMARY KEY (id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+
+// Drop table on plugin deactivation
+register_deactivation_hook(__FILE__, 'delete_students_monthly_payments_table');
+function delete_students_monthly_payments_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'students_monthly_payments';
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
+}
+// Drop table on plugin deactivation
+register_deactivation_hook(__FILE__, 'delete_students_full_payments_table');
+function delete_students_full_payments_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'students_full_payments';
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
+}
+register_activation_hook(__FILE__, 'create_student_installments_table');
+function create_student_installments_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'student_installments';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        student_id BIGINT(20) UNSIGNED NOT NULL,
+        batch_no VARCHAR(50) NOT NULL,
+        installment_no INT(11) NOT NULL,
+        installment_amount DECIMAL(10,2) NOT NULL,
+        paid TINYINT(1) DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        paid_date DATETIME DEFAULT NULL,
+        PRIMARY KEY (id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+
+// Drop table on plugin deactivation
+register_deactivation_hook(__FILE__, 'delete_student_installments_table');
+function delete_student_installments_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'student_installments';
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
 }
 function payment_details_paid_page() {
     render_payment_report_by_status('paid');
