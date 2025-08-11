@@ -1,6 +1,6 @@
 Student Management System for STEAM Education
 
-A simple and lightweight student management system designed specifically for Makerspace.lk to support STEAM education by managing students, courses, payments, progress tracking, and more.
+A  student management system designed specifically for Makerspace.lk to support STEAM education by managing students, courses, payments, progress tracking, and more.
 
 Features:
 
