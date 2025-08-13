@@ -5678,7 +5678,7 @@ function render_new_applicants_page() {
             </form>
           </div>
         </div>
-        <button type="submit" class="button button-primary" id="saveStudentBtn" style="display:none; margin-top:15px;">Enroll</button>
+        <button type="submit" class="button button-primary" id="saveStudentBtn" style="display:none; margin-top:15px;">Enroll Student</button>
       </div>
     </div>
     ';
@@ -5807,87 +5807,244 @@ function render_new_applicants_page() {
       closeModalBtn.onclick = closeModal;
       overlay.onclick = closeModal;
 
-      // Handle form submission: register student and then enroll
-document.getElementById('studentRegisterForm').addEventListener('submit', function(e) {
+// Enroll button click
+enrollBtn.addEventListener('click', function(e) {
   e.preventDefault();
 
-  const form = this;
+  const form = document.getElementById('studentRegisterForm');
+  const batchSelect = document.getElementById('batchSelectModal'); // ensure this is correct
   const formData = new FormData(form);
+  formData.set('action', 'save_student_modal_handler_new');
 
-  // Include gender from hidden input (readonly field)
-  formData.set('gender', document.getElementById('hiddenGenderInput').value);
+  // Save student first
+  fetch(ajaxurl, { method: 'POST', body: formData })
+    .then(res => res.json())
+    .then(data => {
+      console.log('Student Save:', data);
+      if (!data.success) return alert('Failed to save student: ' + data.data);
 
-  // Include payment plan from radio buttons
-  const paymentPlan = document.querySelector('input[name=\"embeddedPaymentPlan\"]:checked')?.value || 'full';
-  formData.set('payment_plan', paymentPlan);
+      alert('Student saved successfully!');
 
-  // Check batch selected
-  if (!formData.get('batch_id')) {
-    alert('Please select a batch!');
-    return;
-  }
-
-  // Disable enroll button to prevent duplicate clicks
-  const enrollBtn = document.getElementById('saveStudentBtn');
-  enrollBtn.disabled = true;
-
-  // First AJAX: Save student registration
-  fetch(ajaxurl, {
-    method: 'POST',
-    credentials: 'same-origin',
-    body: formData
-  })
-  .then(response => response.json())
-  .then(data => {
-    if (data.success) {
-      alert('Student saved successfully! Now enrolling...');
-
-      // Prepare second AJAX data to enroll student
+      // Now enroll
       const enrollData = new FormData();
-      enrollData.append('action', 'enroll_student_in_course');
-      enrollData.append('email', formData.get('email'));
-      enrollData.append('batch_no', formData.get('batch_id'));
-      enrollData.append('payment_plan', paymentPlan);
+      enrollData.set('action', 'save_student_enrollment');
+      enrollData.set('email', form.querySelector(\"input[name='email']\")?.value);
+      enrollData.set('batch_no', batchSelect?.value);
 
-      return fetch(ajaxurl, {
-        method: 'POST',
-        credentials: 'same-origin',
-        body: enrollData
-      });
-    } else {
-      throw new Error(data.data || 'Failed to save student');
-    }
-  })
-  .then(response => response.json())
-  .then(enrollResult => {
-    if (enrollResult.success) {
-      alert('Enrollment successful!');
-      modal.style.display = 'none';
-      overlay.style.display = 'none';
-      location.reload(); // reload to refresh table or page data
-    } else {
-      alert('Enrollment failed: ' + (enrollResult.data || 'Unknown error'));
-    }
-  })
-  .catch(error => {
-    alert('Error: ' + error.message);
-  })
-  .finally(() => {
-    enrollBtn.disabled = false;
-  });
+      enrollData.set('payment_plan', form.querySelector(\"input[name='payment_plan']:checked\")?.value || 'full');
+      enrollData.set('monthly_amount', form.querySelector(\"input[name='monthly_amount']\")?.value || 0);
+      enrollData.set('full_amount', form.querySelector(\"input[name='full_amount']\")?.value || 0);
+      enrollData.set('pending_months', form.querySelector(\"input[name='pending_months']\")?.value || 0);
+
+      fetch(ajaxurl, { method: 'POST', body: enrollData })
+        .then(res => res.json())
+        .then(enrollRes => {
+          console.log('Enrollment:', enrollRes);
+          if (enrollRes.success) {
+            alert('Student enrolled successfully!');
+            closeModal();
+          } else {
+            alert('Enrollment failed: ' + enrollRes.data);
+          }
+        })
+        .catch(err => console.error('Enrollment AJAX error:', err));
+    })
+    .catch(err => console.error('Student AJAX error:', err));
 });
-    });
+
+
+});
     </script>
     ";
 
     echo '</div>';
 }
 
-add_action('wp_ajax_save_student_modal', 'save_student_modal_handler');
-add_action('wp_ajax_nopriv_save_student_modal', 'save_student_modal_handler');
 
-add_action('wp_ajax_enroll_student_in_course', 'enroll_student_in_course_handler');
-add_action('wp_ajax_nopriv_enroll_student_in_course', 'enroll_student_in_course_handler');
+// 1. Save student in student_registrations
+add_action('wp_ajax_save_student_modal_handler_new', 'save_student_modal_handler_new');
+function save_student_modal_handler_new() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'student_registrations';
+
+    $student_name = sanitize_text_field($_POST['student_name']);
+    $dob = sanitize_text_field($_POST['dob']);
+    $gender = sanitize_text_field($_POST['gender']);
+    $email = sanitize_email($_POST['email']);
+    $phone = sanitize_text_field($_POST['phone']);
+
+    // Check if student already exists
+    $existing_student = $wpdb->get_row(
+        $wpdb->prepare(
+            "SELECT student_id FROM $table_name WHERE email = %s OR phone = %s LIMIT 1",
+            $email,
+            $phone
+        ),
+        ARRAY_A
+    );
+
+    if ($existing_student) {
+        wp_send_json_success([
+            'message' => "Student already registered",
+            'student_id' => $existing_student['student_id'],
+            'status' => 'exists'
+        ]);
+    }
+
+    // Generate unique student ID
+    $student_id = generate_unique_student_id($wpdb, $table_name);
+
+    // Insert new student
+    $inserted = $wpdb->insert($table_name, [
+        'student_id'   => $student_id,
+        'student_name' => $student_name,
+        'dob'          => $dob,
+        'gender'       => $gender,
+        'email'        => $email,
+        'phone'        => $phone,
+        'created_at'   => current_time('mysql')
+    ]);
+
+    if ($inserted !== false) {
+        wp_send_json_success([
+            'message' => "Student registered successfully",
+            'student_id' => $student_id,
+            'status' => 'new'
+        ]);
+    } else {
+        wp_send_json_error("Insert failed: " . $wpdb->last_error);
+    }
+}
+
+
+// 2. Save student enrollment in wp_students_course_enrollment
+add_action('wp_ajax_save_student_enrollment', 'save_student_enrollment_handler');
+function save_student_enrollment_handler() {
+    global $wpdb;
+
+    $email        = sanitize_email($_POST['email']);
+    $batch_no     = sanitize_text_field($_POST['batch_no']);
+    $payment_plan = isset($_POST['payment_plan']) ? sanitize_text_field($_POST['payment_plan']) : 'full';
+    $monthly_amount = isset($_POST['monthly_amount']) ? floatval($_POST['monthly_amount']) : 0;
+    $full_amount    = isset($_POST['full_amount']) ? floatval($_POST['full_amount']) : 0;
+    $pending_months = isset($_POST['pending_months']) ? intval($_POST['pending_months']) : 0;
+
+    // Get student_id from email
+    $student = $wpdb->get_row($wpdb->prepare(
+        "SELECT student_id FROM {$wpdb->prefix}student_registrations WHERE email = %s",
+        $email
+    ));
+
+    if (!$student) {
+        wp_send_json_error("Student not found");
+    }
+    $student_id = $student->student_id;
+
+    // Get course_name using batch_no
+    $course_name = $wpdb->get_var($wpdb->prepare(
+        "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s LIMIT 1",
+        $batch_no
+    ));
+
+    if (!$course_name) {
+        wp_send_json_error("Course not found for the batch");
+    }
+
+    // Get course_duration from course_enrollments
+    $course_duration = $wpdb->get_var($wpdb->prepare(
+        "SELECT course_duration FROM {$wpdb->prefix}course_enrollments WHERE course_name = %s",
+        $course_name
+    ));
+
+    // Check if already enrolled
+    $enroll_table = $wpdb->prefix . 'students_course_enrollment';
+    $exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $enroll_table WHERE student_id = %d AND course_name = %s",
+        $student_id, $course_name
+    ));
+
+    if ($exists) {
+        wp_send_json_error("Student already enrolled");
+    }
+
+    // Insert enrollment record
+    $enrollment_data = [
+        'student_id'      => $student_id,
+        'payment_plan'    => $payment_plan,
+        'batch_no'        => $batch_no,
+        'course_name'     => $course_name,
+        'monthly_amount'  => $monthly_amount,
+        'full_amount'     => $full_amount,
+        'pending_months'  => $pending_months,
+        'course_duration' => $course_duration,
+        'enrolled_at'     => current_time('mysql')
+    ];
+
+    $enrollment_format = ['%d','%s','%s','%s','%f','%f','%d','%d','%s'];
+    $insert_main = $wpdb->insert($enroll_table, $enrollment_data, $enrollment_format);
+
+    if (!$insert_main) {
+        wp_send_json_error("❌ Failed to enroll student: " . $wpdb->last_error);
+    }
+
+    $enrolled_at = current_time('mysql');
+
+    // Insert into full or monthly payment tables
+    if ($payment_plan === 'full') {
+        $wpdb->insert(
+            $wpdb->prefix . 'students_full_payments',
+            [
+                'student_id'   => $student_id,
+                'batch_no'     => $batch_no,
+                'payment_plan' => $payment_plan,
+                'full_amount'  => $full_amount,
+                'enrolled_at'  => $enrolled_at
+            ],
+            ['%d','%s','%s','%f','%s']
+        );
+
+    } elseif ($payment_plan === 'monthly') {
+        $wpdb->insert(
+            $wpdb->prefix . 'students_monthly_payments',
+            [
+                'student_id'     => $student_id,
+                'batch_no'       => $batch_no,
+                'payment_plan'   => $payment_plan,
+                'monthly_amount' => $monthly_amount,
+                'pending_months' => $pending_months,
+                'enrolled_at'    => $enrolled_at
+            ],
+            ['%d','%s','%s','%f','%d','%s']
+        );
+
+        // Insert installment rows
+        $installment_table = $wpdb->prefix . 'student_installments';
+        for ($i=1; $i <= intval($course_duration); $i++) {
+            $wpdb->insert(
+                $installment_table,
+                [
+                    'student_id'       => $student_id,
+                    'batch_no'         => $batch_no,
+                    'installment_no'   => $i,
+                    'installment_amount'=> $monthly_amount,
+                    'paid'             => ($i===1 ? 1 : 0),
+                    'created_at'       => current_time('mysql')
+                ],
+                ['%d','%s','%d','%f','%d','%s']
+            );
+        }
+    }
+
+    // Mark as enrolled in student_enrollments
+    $wpdb->update(
+        $wpdb->prefix . 'student_enrollments',
+        ['is_enrolled' => 1],
+        ['student_email' => $email]
+    );
+
+    wp_send_json_success(['student_id' => $student_id, 'message' => 'Student enrolled successfully']);
+}
+
 
 
 
