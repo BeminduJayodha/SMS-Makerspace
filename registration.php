@@ -3156,7 +3156,7 @@ function get_course_duration_by_name() {
 }
 
 add_action('wp_ajax_save_student_modal', 'save_student_modal_handler');
-function save_student_modal_handler() {
+function save_student_modal_handler() { 
     global $wpdb;
     $table_name = $wpdb->prefix . 'student_registrations';
 
@@ -3180,18 +3180,19 @@ function save_student_modal_handler() {
         ]);
     }
 
-    //  Generate unique student ID
+    // Generate unique student ID
     $student_id = generate_unique_student_id($wpdb, $table_name);
 
-    //  Insert new student with timestamp
+    // Insert new student with registration_fee_paid = 1
     $inserted = $wpdb->insert($table_name, [
-        'student_id'   => $student_id,
-        'student_name' => $student_name,
-        'dob'          => $dob,
-        'gender'       => $gender,
-        'email'        => $email,
-        'phone'        => $phone,
-        'created_at'   => current_time('mysql')
+        'student_id'            => $student_id,
+        'student_name'          => $student_name,
+        'dob'                   => $dob,
+        'gender'                => $gender,
+        'email'                 => $email,
+        'phone'                 => $phone,
+        'registration_fee_paid' => 1, // ✅ mark as paid
+        'created_at'            => current_time('mysql')
     ]);
 
     if ($inserted !== false) {
@@ -3204,6 +3205,7 @@ function save_student_modal_handler() {
         wp_send_json_error("Insert failed: " . $wpdb->last_error);
     }
 }
+
 
 
 
@@ -3430,6 +3432,13 @@ if ($insert_main) {
             );
         }
     }
+        // ✅ Mark student as enrolled
+        $student_enrollments_table = $wpdb->prefix . 'student_enrollments';
+        $wpdb->update(
+            $student_enrollments_table,
+            ['is_enrolled' => 1],
+            ['student_id' => $student_id]
+        );
 
     wp_send_json_success(['student_id' => $student_id]);
 
@@ -4961,12 +4970,13 @@ $to_date = date('Y-m-d 23:59:59', strtotime($to_date_raw));
     }
     </style>';
 
+    $total_amount = 0;
     echo '<table class="invoices-table"><thead><tr>
         <th>Student ID</th>
         <th>Student Name</th>
         <th>Course Name</th>
         <th>Batch No</th>
-        <th>Course Fee</th>';
+        <th>Amount</th>';
 
     if ($custom_title === 'Installments') {
         echo '<th>Paid Amount</th><th>Due Amount</th><th>Installments</th>';
@@ -4976,6 +4986,7 @@ $to_date = date('Y-m-d 23:59:59', strtotime($to_date_raw));
 
     if ($status_filter === 'paid') {
         echo '<th>Payment Date</th>';
+        
     }
 
     echo '</tr></thead><tbody>';
@@ -5006,10 +5017,19 @@ $to_date = date('Y-m-d 23:59:59', strtotime($to_date_raw));
 
         if ($status_filter === 'paid') {
             echo '<td>' . esc_html(date('Y-m-d', strtotime($record->payment_date))) . '</td>';
+            $total_amount += (float)$record->amount;
         }
 
         echo '</tr>';
     }
+// ✅ Show Total Row ONLY on Paid Page
+if ($status_filter === 'paid') {
+    echo '<tr style="background:#f0f0f0; font-weight:bold;">
+            <td colspan="4" style="text-align:right;">Total Amount:</td>
+            <td>Rs. ' . number_format($total_amount, 2) . '</td>
+            <td></td>
+          </tr>';
+}
 
     echo '</tbody></table>';
 
@@ -5605,7 +5625,9 @@ function render_new_applicants_page() {
                 <td>{$applicant['parent_phone']}</td>
                 <td>{$applicant['guardian_email']}</td>
                 <td>{$applicant['submitted_at']}</td>
-                <td><button class='enroll-btn'>Enroll</button></td>
+                <td><button class='enroll-btn' style='margin-left:5px; padding:6px 12px;'>Enroll</button><br><br>
+                <button class='delete-btn' style='background:#e74c3c; color:#fff; margin-left:5px; padding:6px 12px; border:none; border-radius:4px; cursor:pointer;'>Delete</button>
+                </td>
             </tr>";
         }
         echo '</tbody></table>';
@@ -5854,6 +5876,37 @@ enrollBtn.addEventListener('click', function(e) {
 
 
 });
+
+// Delete applicant button
+document.querySelectorAll('.delete-btn').forEach(button => {
+    button.addEventListener('click', function(e) {
+        e.preventDefault();
+        if(!confirm('Are you sure you want to delete this applicant?')) return;
+
+        const tr = this.closest('tr');
+        if (!tr) return;
+
+        const applicant = JSON.parse(tr.getAttribute('data-applicant'));
+        const email = applicant.student_email;
+
+        const formData = new FormData();
+        formData.set('action', 'delete_applicant');
+        formData.set('email', email);
+
+        fetch(ajaxurl, { method: 'POST', body: formData })
+            .then(res => res.json())
+            .then(data => {
+                if(data.success){
+                    alert('Applicant deleted successfully');
+                    tr.remove(); // remove row from table
+                } else {
+                    alert('Delete failed: ' + data.data);
+                }
+            })
+            .catch(err => console.error('Delete AJAX error:', err));
+    });
+});
+
     </script>
     ";
 
@@ -6046,6 +6099,25 @@ function save_student_enrollment_handler() {
 }
 
 
+// Delete applicant from student_enrollments
+add_action('wp_ajax_delete_applicant', 'delete_applicant_handler');
+function delete_applicant_handler(){
+    global $wpdb;
+    $email = isset($_POST['email']) ? sanitize_email($_POST['email']) : '';
+
+    if(!$email){
+        wp_send_json_error('Invalid email');
+    }
+
+    $table = $wpdb->prefix . 'student_enrollments';
+    $deleted = $wpdb->delete($table, ['student_email' => $email], ['%s']);
+
+    if($deleted !== false){
+        wp_send_json_success('Applicant deleted');
+    } else {
+        wp_send_json_error('Delete failed: '.$wpdb->last_error);
+    }
+}
 
 
 
