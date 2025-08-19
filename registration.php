@@ -328,7 +328,7 @@ function delete_course_enrollments_table() {
 }
 
 
-function render_students_list_page() { 
+function render_students_list_page() {  
     global $wpdb;
 
     $table_name = $wpdb->prefix . 'student_registrations';
@@ -337,7 +337,7 @@ function render_students_list_page() {
     echo '<div class="wrap">';
     echo '<h1>Students List</h1>';
 
-    // Modern table styling (reuse batch table CSS)
+    // Modern table styling
     echo '<style>
         table.wp-list-table {
             border-collapse: separate;
@@ -408,7 +408,7 @@ function render_students_list_page() {
 
         $count = 1;
         foreach ($students as $student) {
-            echo '<tr>';
+            echo '<tr class="student-row" data-student-id="' . esc_attr($student->student_id) . '">';
             echo '<td>' . esc_html($count++) . '</td>';
             echo '<td>' . esc_html($student->student_id) . '</td>';
             echo '<td>' . esc_html($student->student_name) . '</td>';
@@ -423,8 +423,91 @@ function render_students_list_page() {
         echo '<p>No student records found.</p>';
     }
 
-    echo '</div>';
+    // Modal HTML
+
+    echo '
+    <div id="studentCoursesModal" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); width:80%; max-width:700px; background:#fff; border:1px solid #ccc; padding:20px; border-radius:8px; z-index:9999; box-shadow:0 4px 10px rgba(0,0,0,0.1);">
+        <span id="closeModal" style="position:absolute; top:10px; right:15px; font-size:20px; font-weight:bold; cursor:pointer;">&times;</span>
+        <h2>Student Courses</h2>
+        <div id="studentCoursesContent">Loading...</div>
+    </div>
+    <div id="modalOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9998;"></div>';
+
+
+    // jQuery AJAX
+    echo '<script>
+    jQuery(document).ready(function($){
+        $(".student-row").on("click", function(){
+            var student_id = $(this).data("student-id");
+            $("#studentCoursesContent").html("Loading...");
+            $("#studentCoursesModal, #modalOverlay").fadeIn();
+
+            $.post(ajaxurl, {
+                action: "get_student_courses",
+                student_id: student_id
+            }, function(response){
+                $("#studentCoursesContent").html(response);
+            });
+        });
+
+        $("#closeModal, #modalOverlay").on("click", function(){
+            $("#studentCoursesModal, #modalOverlay").fadeOut();
+        });
+    });
+    </script>';
+
+    echo '</div>'; // wrap
 }
+add_action('wp_ajax_get_student_courses', 'get_student_courses_callback');
+function get_student_courses_callback() {
+    global $wpdb;
+
+    $student_id = isset($_POST['student_id']) ? sanitize_text_field($_POST['student_id']) : '';
+    if (empty($student_id)) {
+        echo '<p style="color:red;">Invalid student.</p>';
+        wp_die();
+    }
+
+    $table_name = $wpdb->prefix . 'students_course_enrollment';
+    $courses = $wpdb->get_results($wpdb->prepare(
+        "SELECT * FROM $table_name WHERE student_id = %s",
+        $student_id
+    ));
+
+    if ($courses) {
+        echo '<table style="width:100%; border-collapse: collapse; font-family: Arial, sans-serif;">';
+        echo '<thead>
+                <tr style="background:#0073aa; color:#fff; text-align:center;">
+                    <th style="padding:10px;">Course Name</th>
+                    <th style="padding:10px;">Batch No</th>
+                    <th style="padding:10px;">Enrolled At</th>
+                    <th style="padding:10px;">Payment Plan</th>
+                </tr>
+              </thead><tbody>';
+        foreach ($courses as $course) {
+            echo '<tr style="text-align:center; border-bottom:1px solid #eee;">
+                    <td style="padding:8px;">' . esc_html($course->course_name) . '</td>
+                    <td style="padding:8px;">' . esc_html($course->batch_no) . '</td>
+                    <td style="padding:8px;">' . esc_html(date('Y-m-d', strtotime($course->enrolled_at))) . '</td>
+                    <td style="padding:8px;">' . esc_html($course->payment_plan) . '</td>
+                  </tr>';
+        }
+        echo '</tbody></table>';
+    } else {
+        // If no courses, show message + enroll button
+        echo '<p style="text-align:center; font-style:italic; color:#666;">This student has not registered any courses yet.</p>';
+        echo '<div style="text-align:center; margin-top:15px;">
+                <a href="' . admin_url('admin.php?page=enroll_student&student_id=' . $student_id) . '" 
+                   style="display:inline-block; padding:10px 20px; background:#0073aa; color:#fff; border-radius:6px; text-decoration:none; font-weight:600;">
+                   Enroll Now
+                </a>
+              </div>';
+    }
+
+    wp_die();
+}
+
+
 
 function course_selection_admin_menu() { 
 
@@ -3290,15 +3373,18 @@ function enroll_student_in_course_handler() {
 
     $student_id = $student->student_id;
 
-    // Get course_name using batch_no
-    $course_name = $wpdb->get_var($wpdb->prepare(
-        "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s LIMIT 1",
+    // Get course_name + registration_fee using batch_no
+    $batch_data = $wpdb->get_row($wpdb->prepare(
+        "SELECT course_name, registration_fee FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s LIMIT 1",
         $batch_no
     ));
 
-    if (!$course_name) {
-        wp_send_json_error("Course not found for the batch");
+    if (!$batch_data) {
+        wp_send_json_error("Course/Batch not found");
     }
+
+    $course_name      = $batch_data->course_name;
+    $registration_fee = $batch_data->registration_fee;
 
     $enroll_table = $wpdb->prefix . 'students_course_enrollment';
 
@@ -3322,7 +3408,24 @@ function enroll_student_in_course_handler() {
     ]);
 
     if ($result === false) {
-        wp_send_json_error("Insert failed: " . $wpdb->last_error);
+        wp_send_json_error("Enrollment insert failed: " . $wpdb->last_error);
+    }
+
+    // ✅ Insert/Update fees table when enrolled
+    $fees_table = $wpdb->prefix . 'student_registration_fees';
+    $fee_exists = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM $fees_table WHERE student_id = %s AND batch_no = %s",
+        $student_id, $batch_no
+    ));
+
+    if (!$fee_exists) {
+        $wpdb->insert($fees_table, [
+            'student_id'       => $student_id,
+            'course_name'      => $course_name,
+            'batch_no'         => $batch_no,
+            'registration_fee' => $registration_fee,
+            'paid_date'        => current_time('mysql')
+        ]);
     }
 
     // Mark as enrolled in wp_student_enrollments table
@@ -3333,13 +3436,14 @@ function enroll_student_in_course_handler() {
         ['student_email' => $email]
     );
 
-    wp_send_json_success("Enrolled");
+    wp_send_json_success("Enrolled and fee recorded");
 }
+
 
 
 add_action('wp_ajax_enroll_registered_student', 'handle_enroll_registered_student');
 
-function handle_enroll_registered_student() {
+function handle_enroll_registered_student() { 
     global $wpdb;
 
     $student_id     = intval($_POST['student_id']);
@@ -3350,7 +3454,7 @@ function handle_enroll_registered_student() {
     $full_amount    = $payment_plan === 'full' ? floatval($_POST['full_amount']) : 0;
     $pending_months = $payment_plan === 'monthly' ? intval($_POST['pending_months']) : 0;
 
-    // Optional fallback
+    // Optional fallback: fetch course_name from batch
     if (empty($course_name)) {
         $course_name = $wpdb->get_var($wpdb->prepare(
             "SELECT course_name FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s",
@@ -3380,58 +3484,87 @@ function handle_enroll_registered_student() {
     $main_table = $wpdb->prefix . 'students_course_enrollment';
     $insert_main = $wpdb->insert($main_table, $enrollment_data, $enrollment_format);
 
+    if ($insert_main) {
+        $enrolled_at = current_time('mysql');
 
-    // Insert into full or monthly table
-if ($insert_main) {
-    $enrolled_at = current_time('mysql');
+        // ✅ Fetch registration_fee from custom_batches
+        $registration_fee = $wpdb->get_var($wpdb->prepare(
+            "SELECT registration_fee FROM {$wpdb->prefix}custom_batches WHERE batch_no = %s",
+            $batch_no
+        ));
 
-    if ($payment_plan === 'full') {
-        $wpdb->insert(
-            $wpdb->prefix . 'students_full_payments',
-            [
-                'student_id'   => $student_id,
-                'batch_no'     => $batch_no,
-                'payment_plan' => $payment_plan,
-                'full_amount'  => $full_amount,
-                'enrolled_at'  => $enrolled_at
-            ],
-            ['%d', '%s', '%s', '%f', '%s']
-        );
+        // ✅ Update student_registration_fees table
+        $fees_table = $wpdb->prefix . 'student_registration_fees';
+        $fee_exists = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $fees_table WHERE student_id = %d AND batch_no = %s",
+            $student_id, $batch_no
+        ));
 
-    } elseif ($payment_plan === 'monthly') {
-        // Insert monthly payment record
-        $wpdb->insert(
-            $wpdb->prefix . 'students_monthly_payments',
-            [
-                'student_id'     => $student_id,
-                'batch_no'       => $batch_no,
-                'payment_plan'   => $payment_plan,
-                'monthly_amount' => $monthly_amount,
-                'pending_months' => $pending_months,
-                'enrolled_at'    => $enrolled_at
-            ],
-            ['%d', '%s', '%s', '%f', '%d', '%s']
-        );
+        if (!$fee_exists) {
+            $wpdb->insert($fees_table, [
+                'student_id'       => $student_id,
+                'batch_no'         => $batch_no,
+                'course_name'      => $course_name,
+                'registration_fee' => $registration_fee,
+                'paid_date'        => current_time('mysql')
+            ]);
+        } else {
+            $wpdb->update($fees_table, [
+                'batch_no'         => $batch_no,
+                'course_name'      => $course_name,
+                'registration_fee' => $registration_fee,
+                'paid_date'        => current_time('mysql')
+            ], [
+                'student_id' => $student_id
+            ]);
+        }
 
-        // ✅ Insert Installment Rows Based on course_duration
-        $installment_table = $wpdb->prefix . 'student_installments';
-
-        for ($i = 1; $i <= intval($course_duration); $i++) {
+        // ✅ Insert into full or monthly payment tables
+        if ($payment_plan === 'full') {
             $wpdb->insert(
-                $installment_table,
+                $wpdb->prefix . 'students_full_payments',
+                [
+                    'student_id'   => $student_id,
+                    'batch_no'     => $batch_no,
+                    'payment_plan' => $payment_plan,
+                    'full_amount'  => $full_amount,
+                    'enrolled_at'  => $enrolled_at
+                ],
+                ['%d', '%s', '%s', '%f', '%s']
+            );
+
+        } elseif ($payment_plan === 'monthly') {
+            $wpdb->insert(
+                $wpdb->prefix . 'students_monthly_payments',
                 [
                     'student_id'     => $student_id,
                     'batch_no'       => $batch_no,
-                    'installment_no' => $i,
-                    'installment_amount'=> $monthly_amount,
-                    'paid'           => ($i === 1 ? 1 : 0), // ✅ first = paid
-                    'created_at'     => current_time('mysql')
+                    'payment_plan'   => $payment_plan,
+                    'monthly_amount' => $monthly_amount,
+                    'pending_months' => $pending_months,
+                    'enrolled_at'    => $enrolled_at
                 ],
-                ['%d', '%s', '%d', '%f', '%d', '%s']
-
+                ['%d', '%s', '%s', '%f', '%d', '%s']
             );
+
+            // ✅ Insert installments
+            $installment_table = $wpdb->prefix . 'student_installments';
+            for ($i = 1; $i <= intval($course_duration); $i++) {
+                $wpdb->insert(
+                    $installment_table,
+                    [
+                        'student_id'        => $student_id,
+                        'batch_no'          => $batch_no,
+                        'installment_no'    => $i,
+                        'installment_amount'=> $monthly_amount,
+                        'paid'              => ($i === 1 ? 1 : 0),
+                        'created_at'        => current_time('mysql')
+                    ],
+                    ['%d', '%s', '%d', '%f', '%d', '%s']
+                );
+            }
         }
-    }
+
         // ✅ Mark student as enrolled
         $student_enrollments_table = $wpdb->prefix . 'student_enrollments';
         $wpdb->update(
@@ -3440,12 +3573,11 @@ if ($insert_main) {
             ['student_id' => $student_id]
         );
 
-    wp_send_json_success(['student_id' => $student_id]);
+        wp_send_json_success(['student_id' => $student_id]);
 
-} else {
-    wp_send_json_error("❌ Failed to enroll student: " . $wpdb->last_error);
-}
-
+    } else {
+        wp_send_json_error("❌ Failed to enroll student: " . $wpdb->last_error);
+    }
 }
 
 
@@ -4985,6 +5117,7 @@ $to_date = date('Y-m-d 23:59:59', strtotime($to_date_raw));
     }
 
     if ($status_filter === 'paid') {
+        echo '<th>Payment Type</th>';
         echo '<th>Payment Date</th>';
         
     }
@@ -5016,6 +5149,7 @@ $to_date = date('Y-m-d 23:59:59', strtotime($to_date_raw));
         }
 
         if ($status_filter === 'paid') {
+            echo '<td>' . ucfirst($record->payment_type) . '</td>';
             echo '<td>' . esc_html(date('Y-m-d', strtotime($record->payment_date))) . '</td>';
             $total_amount += (float)$record->amount;
         }
