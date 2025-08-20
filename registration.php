@@ -337,62 +337,19 @@ function render_students_list_page() {
     echo '<div class="wrap">';
     echo '<h1>Students List</h1>';
 
-    // Modern table styling
+    // Table CSS
     echo '<style>
-        table.wp-list-table {
-            border-collapse: separate;
-            border-spacing: 0;
-            width: 100%;
-            background: #fff;
-            font-family: "Segoe UI", Roboto, Arial, sans-serif;
-            font-size: 14px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-
-        table.wp-list-table th,
-        table.wp-list-table td {
-            padding: 12px 15px;
-            border-bottom: 1px solid #eee;
-            border-right: 1px solid #eee;
-            text-align: center;
-        }
-
-        table.wp-list-table th {
-            background-color: #bbbbbb;
-            font-weight: 600;
-            color: #333;
-        }
-
-        table.wp-list-table th:last-child,
-        table.wp-list-table td:last-child {
-            border-right: none;
-        }
-
-        table.wp-list-table tr:last-child td {
-            border-bottom: none;
-        }
-
-        table.wp-list-table tbody tr:nth-child(even) {
-            background-color: #f7f7f7;
-        }
-
-        table.wp-list-table tbody tr:nth-child(odd) {
-            background-color: #ffffff;
-        }
-
-        table.wp-list-table tbody tr:hover {
-            background-color: #e6f4ff !important;
-            cursor: pointer;
-        }
-
-        .wp-list-table th, .wp-list-table td {
-            vertical-align: middle;
-        }
+        table.wp-list-table {border-collapse: separate; border-spacing:0; width:100%; background:#fff; font-family:"Segoe UI", Roboto, Arial, sans-serif; font-size:14px; border:1px solid #ccc; border-radius:6px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.05);}
+        table.wp-list-table th, table.wp-list-table td {padding:12px 15px; border-bottom:1px solid #eee; border-right:1px solid #eee; text-align:center; vertical-align:middle;}
+        table.wp-list-table th {background-color:#bbbbbb; font-weight:600; color:#333;}
+        table.wp-list-table th:last-child, table.wp-list-table td:last-child {border-right:none;}
+        table.wp-list-table tr:last-child td {border-bottom:none;}
+        table.wp-list-table tbody tr:nth-child(even){background-color:#f7f7f7;}
+        table.wp-list-table tbody tr:nth-child(odd){background-color:#ffffff;}
+        table.wp-list-table tbody tr:hover{background-color:#e6f4ff !important; cursor:pointer;}
     </style>';
 
+    // Students Table
     if (!empty($students)) {
         echo '<table class="wp-list-table widefat fixed striped">';
         echo '<thead>
@@ -423,89 +380,269 @@ function render_students_list_page() {
         echo '<p>No student records found.</p>';
     }
 
-    // Modal HTML
-
-    echo '
-    <div id="studentCoursesModal" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); width:80%; max-width:700px; background:#fff; border:1px solid #ccc; padding:20px; border-radius:8px; z-index:9999; box-shadow:0 4px 10px rgba(0,0,0,0.1);">
+    // Student Courses Modal
+    echo '<div id="studentCoursesModal" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); width:90%; max-width:1000px; background:#fff; border:1px solid #ccc; padding:20px; border-radius:8px; z-index:9999; box-shadow:0 4px 10px rgba(0,0,0,0.1);">
         <span id="closeModal" style="position:absolute; top:10px; right:15px; font-size:20px; font-weight:bold; cursor:pointer;">&times;</span>
         <h2>Student Courses</h2>
         <div id="studentCoursesContent">Loading...</div>
     </div>
     <div id="modalOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9998;"></div>';
 
+    // Registration Fee Modal
+    echo '<div id="registrationFeeModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
+      <div style="background:#fff; width:400px; margin:10% auto; padding:20px; border-radius:8px; position:relative;">
+        <span id="closeRegModal" style="position:absolute; top:10px; right:15px; cursor:pointer; font-size:18px;">&times;</span>
+        <h3 id="modalStudentNameText"></h3>
+        <p id="modalCourseNameText" style="margin:5px 0;"></p>
+        <p id="modalBatchNoText" style="margin:5px 0;"></p> 
+        <h2 id="courseFeeDisplay">Course Fee: Rs. 0</h2>
+    <label style="margin-top:10px; display:block;">
+      <input type="checkbox" id="confirmRegPaidCheckbox" /> ✅ Paid
+    </label>
+<form id="paymentPlanForm" style="margin-top:10px;">
+    <label for="fullPaymentRadio"><input type="radio" id="fullPaymentRadio" name="paymentPlan" value="full" checked /> Full Payment</label><br>
+    <label for="monthlyPaymentRadio"><input type="radio" id="monthlyPaymentRadio" name="paymentPlan" value="monthly" /> Monthly Payment</label>
+</form>
 
-    // jQuery AJAX
+
+        <form id="enrollStudentForm" style="display:none;">
+            <input type="hidden" name="action" value="enroll_registered_student">
+            <input type="hidden" name="student_id" id="enrollStudentId">
+            <input type="hidden" name="payment_plan" id="enrollPaymentPlan">
+            <input type="hidden" name="batch_no" id="enrollBatchNo">
+            <input type="hidden" name="course_name" id="enrollCourseName">
+            <input type="hidden" name="monthly_amount" id="monthlyAmountInput">
+            <input type="hidden" name="full_amount" id="fullAmountInput">
+            <input type="hidden" name="pending_months" id="pendingMonthsInput">
+        </form>
+
+        <button id="enrollBtn" class="button button-primary" style="margin-top:15px;">Enroll</button>
+      </div>
+    </div>';
+
+    // JS for both modals and enrollment
     echo '<script>
-    jQuery(document).ready(function($){
-        $(".student-row").on("click", function(){
-            var student_id = $(this).data("student-id");
-            $("#studentCoursesContent").html("Loading...");
-            $("#studentCoursesModal, #modalOverlay").fadeIn();
+jQuery(document).ready(function($){  
+    // 1️⃣ Open Student Courses Modal
+    $(document).on("click", ".student-row", function(){
+        var student_id = $(this).data("student-id");
+        $("#studentCoursesContent").html("Loading...");
+        $("#studentCoursesModal, #modalOverlay").fadeIn();
 
-            $.post(ajaxurl, {
-                action: "get_student_courses",
-                student_id: student_id
-            }, function(response){
-                $("#studentCoursesContent").html(response);
-            });
-        });
-
-        $("#closeModal, #modalOverlay").on("click", function(){
-            $("#studentCoursesModal, #modalOverlay").fadeOut();
+        $.post(ajaxurl, { action: "get_student_courses", student_id: student_id }, function(response){
+            $("#studentCoursesContent").html(response);
         });
     });
+
+    // 2️⃣ Close modals
+    $(document).on("click", "#closeModal, #modalOverlay", function(){
+        $("#studentCoursesModal, #modalOverlay").fadeOut();
+    });
+    $(document).on("click", "#closeRegModal", function(){
+        $("#registrationFeeModal").fadeOut();
+    });
+
+    // 3️⃣ Open Registration Fee Modal when Enroll button clicked in Student Courses Modal
+    $(document).on("click", ".enroll-btn", function(){
+        var student = $(this).data("student");
+        var batch   = $(this).data("batches")[0];
+
+        // Populate modal info
+        $("#modalStudentNameText").text("Student: " + student.student_id);
+        $("#modalCourseNameText").text("Course: " + batch.course_name);
+        $("#modalBatchNoText").text("Batch No: " + batch.batch_no);
+        $("#courseFeeDisplay").text("Course Fee: Rs. " + batch.course_fee);
+
+        // Hidden inputs
+        $("#enrollStudentId").val(student.student_id);
+        $("#enrollBatchNo").val(batch.batch_no);
+        $("#enrollCourseName").val(batch.course_name);
+
+        // Disable Enroll button by default
+        $("#enrollBtn").prop("disabled", true);
+        $("#confirmRegPaidCheckbox").prop("checked", false);
+
+        // Show modal immediately
+        $("#registrationFeeModal").fadeIn();
+
+        // Fetch course duration from server and update amounts
+        $.post(ajaxurl, { action: "get_course_duration_by_name", course_name: batch.course_name }, function(res){
+            if(res.success){
+                var courseDuration = parseInt(res.data.course_duration) || 1;
+
+                // Calculate amounts
+                var fullAmount = batch.course_fee * 0.9; // 10% discount
+                var monthlyAmount = Math.round(batch.course_fee / courseDuration);
+
+                $("#fullAmountInput").val(fullAmount);
+                $("#monthlyAmountInput").val(monthlyAmount);
+                $("#pendingMonthsInput").val(courseDuration - 1);
+            }
+        });
+    });
+
+    // 4️⃣ Enable Enroll button when ✅ Paid checkbox checked
+    $(document).on("change", "#confirmRegPaidCheckbox", function(){
+        $("#enrollBtn").prop("disabled", !$(this).is(":checked"));
+    });
+
+    // 5️⃣ Payment plan change
+    $(document).on("change", "input[name=\'paymentPlan\']", function(){
+        var plan = $(this).val();
+        $("#enrollPaymentPlan").val(plan);
+
+        var fullAmount = parseFloat($("#fullAmountInput").val());
+        var monthlyAmount = parseFloat($("#monthlyAmountInput").val());
+
+        if(plan === "full"){
+            $("#monthlyAmountInput").val(0);
+            $("#pendingMonthsInput").val(0);
+        } else {
+            // Monthly amount already calculated using course duration
+            $("#fullAmountInput").val(0);
+            // pendingMonthsInput remains courseDuration - 1
+        }
+    });
+
+    // 6️⃣ Enroll student via Registration Fee Modal
+    $(document).on("click", "#enrollBtn", function(e){
+        e.preventDefault();
+        var data = $("#enrollStudentForm").serialize();
+        $.post(ajaxurl, data, function(res){
+            if(res.success){
+                alert("✅ Student enrolled successfully for batch " + $("#enrollBatchNo").val());
+                $("#registrationFeeModal").fadeOut();
+                $("#studentCoursesModal, #modalOverlay").fadeOut();
+                location.reload(); // optional: refresh seats
+            } else {
+                alert("❌ Error: " + res.data);
+            }
+        });
+    });
+});
+
+
     </script>';
 
     echo '</div>'; // wrap
 }
-add_action('wp_ajax_get_student_courses', 'get_student_courses_callback');
+
+add_action("wp_ajax_get_student_courses", "get_student_courses_callback");
 function get_student_courses_callback() {
     global $wpdb;
 
-    $student_id = isset($_POST['student_id']) ? sanitize_text_field($_POST['student_id']) : '';
+    $student_id = isset($_POST["student_id"]) ? sanitize_text_field($_POST["student_id"]) : "";
     if (empty($student_id)) {
-        echo '<p style="color:red;">Invalid student.</p>';
+        echo "<p style='color:red;'>Invalid student.</p>";
         wp_die();
     }
 
-    $table_name = $wpdb->prefix . 'students_course_enrollment';
-    $courses = $wpdb->get_results($wpdb->prepare(
-        "SELECT * FROM $table_name WHERE student_id = %s",
+    $enroll_table = $wpdb->prefix . "students_course_enrollment";
+    $batches_table = $wpdb->prefix . "custom_batches";
+
+    // Get batches student has already enrolled
+    $enrolled_batches = $wpdb->get_col($wpdb->prepare(
+        "SELECT batch_no FROM $enroll_table WHERE student_id = %s",
         $student_id
     ));
 
-    if ($courses) {
-        echo '<table style="width:100%; border-collapse: collapse; font-family: Arial, sans-serif;">';
-        echo '<thead>
-                <tr style="background:#0073aa; color:#fff; text-align:center;">
-                    <th style="padding:10px;">Course Name</th>
-                    <th style="padding:10px;">Batch No</th>
-                    <th style="padding:10px;">Enrolled At</th>
-                    <th style="padding:10px;">Payment Plan</th>
-                </tr>
-              </thead><tbody>';
-        foreach ($courses as $course) {
-            echo '<tr style="text-align:center; border-bottom:1px solid #eee;">
-                    <td style="padding:8px;">' . esc_html($course->course_name) . '</td>
-                    <td style="padding:8px;">' . esc_html($course->batch_no) . '</td>
-                    <td style="padding:8px;">' . esc_html(date('Y-m-d', strtotime($course->enrolled_at))) . '</td>
-                    <td style="padding:8px;">' . esc_html($course->payment_plan) . '</td>
-                  </tr>';
-        }
-        echo '</tbody></table>';
+    // Prepare query for batches NOT enrolled by student
+    if (!empty($enrolled_batches)) {
+        $placeholders = implode(",", array_fill(0, count($enrolled_batches), "%s"));
+        $query = $wpdb->prepare(
+            "SELECT * FROM $batches_table WHERE batch_no NOT IN ($placeholders) GROUP BY batch_no ORDER BY course_name, batch_no",
+            ...$enrolled_batches
+        );
     } else {
-        // If no courses, show message + enroll button
-        echo '<p style="text-align:center; font-style:italic; color:#666;">This student has not registered any courses yet.</p>';
-        echo '<div style="text-align:center; margin-top:15px;">
-                <a href="' . admin_url('admin.php?page=enroll_student&student_id=' . $student_id) . '" 
-                   style="display:inline-block; padding:10px 20px; background:#0073aa; color:#fff; border-radius:6px; text-decoration:none; font-weight:600;">
-                   Enroll Now
-                </a>
-              </div>';
+        $query = "SELECT * FROM $batches_table GROUP BY batch_no ORDER BY course_name, batch_no";
+    }
+
+    $batches = $wpdb->get_results($query);
+
+    if ($batches) {
+        echo "<table style='width:100%; border-collapse: collapse; font-family: Arial, sans-serif;'>";
+        echo "<thead>
+                <tr style='background:#0073aa; color:#fff; text-align:center;'>
+                    <th style='padding:10px;'>Course Name</th>
+                    <th style='padding:10px;'>Batch No</th>
+                    <th style='padding:10px;'>Instructor</th>
+                    <th style='padding:10px;'>Start Date</th>
+                    <th style='padding:10px;'>End Date</th>
+                    <th style='padding:10px;'>Start Time</th>
+                    <th style='padding:10px;'>End Time</th>
+                    <th style='padding:10px;'>Course Fee</th>
+                    <th style='padding:10px;'>Registration Fee</th>
+                    <th style='padding:10px;'>Available Seats</th>
+                    <th style='padding:10px;'>Action</th>
+                </tr>
+              </thead><tbody>";
+
+        foreach ($batches as $batch) {
+            // Prepare batch data for modal
+            $batch_data = json_encode([
+                "batch_no" => $batch->batch_no,
+                "course_name" => $batch->course_name,
+                "registration_fee" => $batch->registration_fee,
+                "course_fee" => $batch->course_fee,
+                "start_date" => $batch->start_date,
+                "end_date" => $batch->end_date
+            ]);
+
+            echo "<tr style='text-align:center; border-bottom:1px solid #eee;'>
+                    <td style='padding:8px;'>{$batch->course_name}</td>
+                    <td style='padding:8px;'>{$batch->batch_no}</td>
+                    <td style='padding:8px;'>{$batch->instructor_name}</td>
+                    <td style='padding:8px;'>" . date('Y-m-d', strtotime($batch->start_date)) . "</td>
+                    <td style='padding:8px;'>" . date('Y-m-d', strtotime($batch->end_date)) . "</td>
+                    <td style='padding:8px;'>{$batch->start_time}</td>
+                    <td style='padding:8px;'>{$batch->end_time}</td>
+                    <td style='padding:8px;' data-max-capacity='{$batch->max_students}'>{$batch->course_fee}</td>
+                    <td style='padding:8px;'>{$batch->registration_fee}</td>
+                    <td style='padding:8px;' class='available-seats' data-batch-no='{$batch->batch_no}'>Loading...</td>
+                    <td style='padding:8px;'>
+                        <button class='enroll-btn' 
+                            data-student='{\"student_id\":\"{$student_id}\"}'
+                            data-batches='[{$batch_data}]'
+                            style='padding:6px 12px; background:#28a745; color:#fff; border-radius:4px; border:none; cursor:pointer;'>
+                            Enroll
+                        </button>
+                    </td>
+                  </tr>";
+        }
+
+        echo "</tbody></table>";
+
+        // Fetch enrolled student count for available seats
+        echo "<script>
+        jQuery(document).ready(function($){
+            $('.available-seats').each(function(){
+                var \$cell = $(this);
+                var batch_no = \$cell.data('batch-no');
+
+                $.post(ajaxurl, {
+                    action: 'get_enrolled_student_count',
+                    batch_no: batch_no
+                }, function(response){
+                    if(response.success){
+                        var enrolled = response.data.count;
+                        var max_capacity = parseInt(\$cell.closest('tr').find('td[data-max-capacity]').data('max-capacity')) || 16;
+                        var available = max_capacity - enrolled;
+                        \$cell.text(available);
+                    } else {
+                        \$cell.text('N/A');
+                    }
+                });
+            });
+        });
+        </script>";
+
+    } else {
+        echo "<p style='text-align:center; font-style:italic; color:#666;'>No available batches for enrollment.</p>";
     }
 
     wp_die();
 }
+
 
 
 
@@ -4604,6 +4741,8 @@ add_submenu_page(
 );
 
 }
+
+
 // Create table on plugin activation
 register_activation_hook(__FILE__, 'create_students_full_payments_table');
 function create_students_full_payments_table() {
@@ -5159,11 +5298,11 @@ $to_date = date('Y-m-d 23:59:59', strtotime($to_date_raw));
 // ✅ Show Total Row ONLY on Paid Page
 if ($status_filter === 'paid') {
     echo '<tr style="background:#f0f0f0; font-weight:bold;">
-            <td colspan="4" style="text-align:right;">Total Amount:</td>
+            <td colspan="6" style="text-align:right;">Total Amount:</td>
             <td>Rs. ' . number_format($total_amount, 2) . '</td>
-            <td></td>
           </tr>';
 }
+
 
     echo '</tbody></table>';
 
@@ -5186,34 +5325,50 @@ if ($status_filter === 'paid') {
                         <?php if ($status_filter === 'paid') { echo '<th>Payment Date</th>'; } ?>
                     </tr>
                 </thead>
-                <tbody>
-                    <?php foreach ($records as $record): 
-                        $student_name = $record->student_name ?: 'Unknown';
-                        $payment_date = !empty($record->payment_date) ? date('Y-m-d', strtotime($record->payment_date)) : '—';
+<tbody>
+    <?php 
+    $total_amount = 0; // initialize total
 
-                        // Skip fully paid in pending if needed
-                        if ($status_filter === 'pending' && $record->due_amount <= 0 && !$custom_title) {
-                            continue;
-                        }
-                    ?>
-                    <tr>
-                        <td><?php echo esc_html($record->student_id); ?></td>
-                        <td><?php echo esc_html($student_name); ?></td>
-                        <td><?php echo esc_html($record->course_name); ?></td>
-                        <td><?php echo esc_html($record->batch_no); ?></td>
-                        <td>Rs. <?php echo number_format((float)$record->amount, 2); ?></td>
+    foreach ($records as $record): 
+        $student_name = $record->student_name ?: 'Unknown';
+        $payment_date = !empty($record->payment_date) ? date('Y-m-d', strtotime($record->payment_date)) : '—';
 
-                        <?php if ($status_filter === 'pending' || $custom_title === 'Installments'): ?>
-                            <td>Rs. <?php echo number_format((float)($record->paid_amount ?? 0), 2); ?></td>
-                            <td><strong style="color:#d00;">Rs. <?php echo number_format((float)($record->due_amount ?? 0), 2); ?></strong></td>
-                        <?php endif; ?>
+        // Skip fully paid in pending if needed
+        if ($status_filter === 'pending' && $record->due_amount <= 0 && !$custom_title) {
+            continue;
+        }
 
-                        <?php if ($status_filter === 'paid'): ?>
-                            <td><?php echo esc_html($payment_date); ?></td>
-                        <?php endif; ?>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
+        // accumulate total only for paid
+        if ($status_filter === 'paid') {
+            $total_amount += (float) $record->amount;
+        }
+    ?>
+    <tr>
+        <td><?php echo esc_html($record->student_id); ?></td>
+        <td><?php echo esc_html($student_name); ?></td>
+        <td><?php echo esc_html($record->course_name); ?></td>
+        <td><?php echo esc_html($record->batch_no); ?></td>
+        <td>Rs. <?php echo number_format((float)$record->amount, 2); ?></td>
+
+        <?php if ($status_filter === 'pending' || $custom_title === 'Installments'): ?>
+            <td>Rs. <?php echo number_format((float)($record->paid_amount ?? 0), 2); ?></td>
+            <td><strong style="color:#d00;">Rs. <?php echo number_format((float)($record->due_amount ?? 0), 2); ?></strong></td>
+        <?php endif; ?>
+
+        <?php if ($status_filter === 'paid'): ?>
+            <td><?php echo esc_html($payment_date); ?></td>
+        <?php endif; ?>
+    </tr>
+    <?php endforeach; ?>
+
+    <?php if ($status_filter === 'paid'): ?>
+        <tr style="background:#FFFFFF; font-weight:bold;">
+            <td colspan="5" style="text-align:right;">Total Amount:</td>
+            <td>Rs. <?php echo number_format($total_amount, 2); ?></td>
+        </tr>
+    <?php endif; ?>
+</tbody>
+
             </table>
         </div>
 
@@ -6252,6 +6407,160 @@ function delete_applicant_handler(){
         wp_send_json_error('Delete failed: '.$wpdb->last_error);
     }
 }
+
+function register_student_progress_submenus() { 
+
+    // Parent menu → loads Student page by default
+    add_submenu_page(
+        'student-registration',
+        'Student Progress',
+        'Student Progress',
+        'manage_options',
+        'student_progress_student',   // same slug as Student
+        'student_progress_student_page' // same callback as Student
+    );
+
+    // Student (child)
+    add_submenu_page(
+        'student-registration',
+        'Student Progress - Student',
+        '↳ Student',
+        'manage_options',
+        'student_progress_student',
+        'student_progress_student_page'
+    );
+
+    // Module (child)
+    add_submenu_page(
+        'student-registration',
+        'Student Progress - Module',
+        '↳ Module',
+        'manage_options',
+        'student_progress_module',
+        'student_progress_module_page'
+    );
+}
+add_action('admin_menu', 'register_student_progress_submenus');
+
+function student_progress_module_page() { 
+    global $wpdb;
+
+    // Step 1: Fetch all batches
+    $batches = $wpdb->get_results("SELECT DISTINCT batch_no FROM wp_custom_batches");
+
+    $selected_batch = isset($_POST['batch_no']) ? sanitize_text_field($_POST['batch_no']) : '';
+    $students = [];
+    $modules = [];
+    $course_name = '';
+
+    if ($selected_batch) {
+        // Step 2a: Get course name for selected batch
+        $course_name = $wpdb->get_var(
+            $wpdb->prepare("SELECT course_name FROM wp_custom_batches WHERE batch_no = %s", $selected_batch)
+        );
+        $course_name = trim($course_name);
+
+        // Step 2b: Get modules from wp_course_enrollments
+        $modules_str = $wpdb->get_var(
+            $wpdb->prepare("SELECT modules FROM wp_course_enrollments WHERE course_name = %s", $course_name)
+        );
+
+        // Convert to PHP array safely
+        if ($modules_str) {
+            $decoded = json_decode($modules_str, true);
+            if (is_array($decoded)) {
+                $modules = $decoded;
+            } else {
+                $unserialized = maybe_unserialize($modules_str);
+                if (is_array($unserialized)) {
+                    $modules = $unserialized;
+                } else {
+                    $modules = array_map('trim', explode(',', $modules_str));
+                }
+            }
+
+            // Remove empty module names and reindex
+            $modules = array_filter($modules, function($m) { return trim($m) !== ''; });
+            $modules = array_values($modules);
+
+            // Remove extra brackets or quotes
+            foreach ($modules as &$m) {
+                $m = trim($m, '[]"');
+            }
+        }
+
+        // Step 2c: Get students in the batch
+        $students = $wpdb->get_results(
+            $wpdb->prepare("
+                SELECT e.student_id, r.student_name, e.enrolled_at
+                FROM wp_students_course_enrollment e
+                LEFT JOIN wp_student_registrations r ON e.student_id = r.student_id
+                WHERE e.batch_no = %s
+                ORDER BY r.student_name ASC
+            ", $selected_batch)
+        );
+    }
+
+    ?>
+    <div class="wrap">
+        <h2>Students Enrolled by Batch</h2>
+
+        <!-- Batch selection -->
+        <form method="post">
+            <label for="batch_no">Select Batch:</label>
+            <select name="batch_no" id="batch_no" required onchange="this.form.submit()">
+                <option value="">-- Select Batch --</option>
+                <?php foreach ($batches as $batch_option): ?>
+                    <option value="<?php echo esc_attr($batch_option->batch_no); ?>" <?php selected($selected_batch, $batch_option->batch_no); ?>>
+                        <?php echo esc_html($batch_option->batch_no); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+
+        <?php if ($selected_batch): ?>
+            <h3>Batch: <?php echo esc_html($selected_batch); ?> | Course: <?php echo esc_html($course_name); ?></h3>
+
+            <?php if (!empty($students)): ?>
+                <table class="wp-list-table widefat striped">
+                    <thead>
+                        <tr>
+                            <th><strong>Student ID</strong></th>
+                            <th><strong>Student Name</strong></th>
+                            <?php foreach ($modules as $module): ?>
+                                <th><strong><?php echo esc_html($module); ?></strong></th>
+                            <?php endforeach; ?>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($students as $student): ?>
+                            <tr>
+                                <td><?php echo esc_html($student->student_id); ?></td>
+                                <td><?php echo esc_html($student->student_name); ?></td>
+                                <?php foreach ($modules as $module): ?>
+                                    <td>
+                                        <input type="text" 
+                                               name="progress[<?php echo esc_attr($student->student_id); ?>][<?php echo esc_attr($module); ?>]" 
+                                               value="" 
+                                               placeholder="Enter progress">
+                                    </td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php else: ?>
+                <p><strong>No students enrolled in this batch.</strong></p>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+
+
+
+
 
 
 
