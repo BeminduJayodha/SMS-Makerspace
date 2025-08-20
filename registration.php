@@ -6442,10 +6442,44 @@ function register_student_progress_submenus() {
 }
 add_action('admin_menu', 'register_student_progress_submenus');
 
-function student_progress_module_page() { 
+function student_progress_module_page() {   
     global $wpdb;
 
-    // Step 1: Fetch all batches
+    // Handle saving progress per student
+    if (isset($_POST['save_progress']) && !empty($_POST['batch_no'])) {
+        $table_name = $wpdb->prefix . 'student_progress';
+        $student_id = intval($_POST['save_progress']); // student being saved
+        $batch_no = sanitize_text_field($_POST['batch_no']);
+        $progress_input = $_POST['progress'][$student_id] ?? [];
+
+        // Fetch existing progress
+        $existing_json = $wpdb->get_var($wpdb->prepare(
+            "SELECT modules_progress FROM $table_name WHERE student_id=%d AND batch_no=%s",
+            $student_id,
+            $batch_no
+        ));
+        $existing_progress = $existing_json ? json_decode($existing_json, true) : [];
+
+        // Merge new input into existing progress
+        foreach ($progress_input as $module_name => $value) {
+            $existing_progress[sanitize_text_field($module_name)] = sanitize_text_field($value);
+        }
+
+        // Save back to DB
+        $wpdb->replace(
+            $table_name,
+            [
+                'student_id' => $student_id,
+                'batch_no' => $batch_no,
+                'modules_progress' => wp_json_encode($existing_progress),
+            ],
+            ['%d','%s','%s']
+        );
+
+        echo '<div class="updated notice"><p>Progress for Student ID ' . esc_html($student_id) . ' saved successfully.</p></div>';
+    }
+
+    // Fetch all batches
     $batches = $wpdb->get_results("SELECT DISTINCT batch_no FROM wp_custom_batches");
 
     $selected_batch = isset($_POST['batch_no']) ? sanitize_text_field($_POST['batch_no']) : '';
@@ -6454,18 +6488,11 @@ function student_progress_module_page() {
     $course_name = '';
 
     if ($selected_batch) {
-        // Step 2a: Get course name for selected batch
-        $course_name = $wpdb->get_var(
-            $wpdb->prepare("SELECT course_name FROM wp_custom_batches WHERE batch_no = %s", $selected_batch)
-        );
+        $course_name = $wpdb->get_var($wpdb->prepare("SELECT course_name FROM wp_custom_batches WHERE batch_no = %s", $selected_batch));
         $course_name = trim($course_name);
 
-        // Step 2b: Get modules from wp_course_enrollments
-        $modules_str = $wpdb->get_var(
-            $wpdb->prepare("SELECT modules FROM wp_course_enrollments WHERE course_name = %s", $course_name)
-        );
+        $modules_str = $wpdb->get_var($wpdb->prepare("SELECT modules FROM wp_course_enrollments WHERE course_name = %s", $course_name));
 
-        // Convert to PHP array safely
         if ($modules_str) {
             $decoded = json_decode($modules_str, true);
             if (is_array($decoded)) {
@@ -6478,84 +6505,106 @@ function student_progress_module_page() {
                     $modules = array_map('trim', explode(',', $modules_str));
                 }
             }
-
-            // Remove empty module names and reindex
-            $modules = array_filter($modules, function($m) { return trim($m) !== ''; });
+            $modules = array_filter($modules, fn($m) => trim($m) !== '');
             $modules = array_values($modules);
-
-            // Remove extra brackets or quotes
             foreach ($modules as &$m) {
                 $m = trim($m, '[]"');
             }
         }
 
-        // Step 2c: Get students in the batch
-        $students = $wpdb->get_results(
-            $wpdb->prepare("
-                SELECT e.student_id, r.student_name, e.enrolled_at
-                FROM wp_students_course_enrollment e
-                LEFT JOIN wp_student_registrations r ON e.student_id = r.student_id
-                WHERE e.batch_no = %s
-                ORDER BY r.student_name ASC
-            ", $selected_batch)
-        );
+        $students = $wpdb->get_results($wpdb->prepare("
+            SELECT e.student_id, r.student_name, e.enrolled_at
+            FROM wp_students_course_enrollment e
+            LEFT JOIN wp_student_registrations r ON e.student_id = r.student_id
+            WHERE e.batch_no = %s
+            ORDER BY r.student_name ASC
+        ", $selected_batch));
     }
-
     ?>
+
     <div class="wrap">
-        <h2>Students Enrolled by Batch</h2>
+        <h1 style="margin-bottom: 20px;">Student Progress by Batch</h1>
 
         <!-- Batch selection -->
-        <form method="post">
-            <label for="batch_no">Select Batch:</label>
-            <select name="batch_no" id="batch_no" required onchange="this.form.submit()">
-                <option value="">-- Select Batch --</option>
-                <?php foreach ($batches as $batch_option): ?>
-                    <option value="<?php echo esc_attr($batch_option->batch_no); ?>" <?php selected($selected_batch, $batch_option->batch_no); ?>>
-                        <?php echo esc_html($batch_option->batch_no); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </form>
+        <div style="margin-bottom: 30px; max-width: 400px;">
+            <form method="post">
+                <label for="batch_no" style="font-weight: 600;">Select Batch:</label>
+                <select name="batch_no" id="batch_no" required onchange="this.form.submit()" 
+                        style="padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; width: 100%; margin-top: 5px;">
+                    <option value="">-- Select Batch --</option>
+                    <?php foreach ($batches as $batch_option): ?>
+                        <option value="<?php echo esc_attr($batch_option->batch_no); ?>" <?php selected($selected_batch, $batch_option->batch_no); ?>>
+                            <?php echo esc_html($batch_option->batch_no); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </form>
+        </div>
 
         <?php if ($selected_batch): ?>
-            <h3>Batch: <?php echo esc_html($selected_batch); ?> | Course: <?php echo esc_html($course_name); ?></h3>
+            <h2 style="margin-bottom: 20px;">Batch: <?php echo esc_html($selected_batch); ?> | Course: <?php echo esc_html($course_name); ?></h2>
 
             <?php if (!empty($students)): ?>
-                <table class="wp-list-table widefat striped">
-                    <thead>
-                        <tr>
-                            <th><strong>Student ID</strong></th>
-                            <th><strong>Student Name</strong></th>
-                            <?php foreach ($modules as $module): ?>
-                                <th><strong><?php echo esc_html($module); ?></strong></th>
-                            <?php endforeach; ?>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($students as $student): ?>
-                            <tr>
-                                <td><?php echo esc_html($student->student_id); ?></td>
-                                <td><?php echo esc_html($student->student_name); ?></td>
-                                <?php foreach ($modules as $module): ?>
-                                    <td>
-                                        <input type="text" 
-                                               name="progress[<?php echo esc_attr($student->student_id); ?>][<?php echo esc_attr($module); ?>]" 
-                                               value="" 
-                                               placeholder="Enter progress">
-                                    </td>
-                                <?php endforeach; ?>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+<div style="overflow-x:auto; border-radius: 10px; border: 1px solid #ddd;">
+    <table style="width: 100%; border-collapse: collapse; min-width: 700px;">
+        <thead style="background: #0073aa; color: #fff;">
+            <tr>
+                <th style="padding: 12px; text-align: left; border-right: 1px solid #ccc;">Student ID</th>
+                <th style="padding: 12px; text-align: left; border-right: 1px solid #ccc;">Student Name</th>
+                <?php foreach ($modules as $module): ?>
+                    <th style="padding: 12px; text-align: left; border-right: 1px solid #ccc;"><?php echo esc_html($module); ?></th>
+                <?php endforeach; ?>
+                <th style="padding: 12px;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($students as $student): 
+                $existing_json = $wpdb->get_var($wpdb->prepare(
+                    "SELECT modules_progress FROM {$wpdb->prefix}student_progress WHERE student_id=%d AND batch_no=%s",
+                    $student->student_id,
+                    $selected_batch
+                ));
+                $existing_progress = $existing_json ? json_decode($existing_json, true) : [];
+            ?>
+            <tr style="border-bottom: 1px solid #eee;">
+                <form method="post">
+                    <input type="hidden" name="batch_no" value="<?php echo esc_attr($selected_batch); ?>">
+                    <td style="padding: 10px; border-right: 1px solid #ccc;"><?php echo esc_html($student->student_id); ?></td>
+                    <td style="padding: 10px; border-right: 1px solid #ccc;"><?php echo esc_html($student->student_name); ?></td>
+
+                    <?php foreach ($modules as $module): ?>
+                        <td style="padding: 8px; border-right: 1px solid #ccc;">
+                            <input type="text" 
+                                   name="progress[<?php echo esc_attr($student->student_id); ?>][<?php echo esc_attr($module); ?>]" 
+                                   value="<?php echo esc_attr($existing_progress[$module] ?? ''); ?>" 
+                                   placeholder="Enter progress"
+                                   style="padding: 6px 8px; border-radius: 5px; border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    <?php endforeach; ?>
+
+                    <td style="padding: 8px;">
+                        <button type="submit" name="save_progress" value="<?php echo esc_attr($student->student_id); ?>" 
+        style="background-color: #28a745; color: #fff; border: none; padding: 6px 12px; border-radius: 5px; cursor: pointer;">
+    Save
+</button>
+
+                    </td>
+                </form>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+
             <?php else: ?>
-                <p><strong>No students enrolled in this batch.</strong></p>
+                <p style="padding: 15px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px;">No students enrolled in this batch.</p>
             <?php endif; ?>
         <?php endif; ?>
     </div>
+
     <?php
 }
+
 
 
 
